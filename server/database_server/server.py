@@ -41,34 +41,34 @@ class QueryResult(TypedDict):
     """Result structure for model training"""
     query: str
     count: int
+    ids: List[int]
+    results: List[Dict[str, Any]]
 
 @mcp.tool()
 def query_compounds(
-    compound: str,
+    selectors: dict,
     *,
     limit: int = 50,
     db_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
-    """Query the ASE database for entries whose name or chemical formula matches the compound."""
+    """Query the ASE database with a list of selectors. 
+    example: selectors = {
+        "formula": "Si32",
+        }
+    
+    
+    """
     path = _resolve_db_path(db_path)
     results: List[Dict[str, Any]] = []
     seen_ids: set[int] = set()
     try:
         with connect(path) as db:
-            selectors = [
-                {"name": compound},
-                {"formula": compound},
-                {"chemical_symbols": compound},
-            ]
-            for selector in selectors:
-                if len(results) >= limit:
-                    break
-                for row in db.select(**selector):
-                    if row.id in seen_ids:
-                        continue
-                    seen_ids.add(row.id)
-                    results.append(
-                    {
+            for row in db.select(**selectors):
+                if row.id in seen_ids:
+                    continue
+                seen_ids.add(row.id)
+                results.append(
+                {
                         "id": row.id,
                         "name": row.get("name"),
                         "formula": row.get("formula"),
@@ -76,16 +76,15 @@ def query_compounds(
                         "key_value_pairs": dict(row.key_value_pairs or {}),
                     }
                 )
-                    if len(results) >= limit:
-                        break
-
+                if len(results) >= limit:
+                    break
             return  QueryResult(
-                query=compound,count=len(results)
+                query=selectors,count=len(results),results=results,ids=seen_ids
             )
     except Exception as e:
         logger.error("Error querying database: %s", e)
         return QueryResult(
-            query=compound,count=0
+            query=selectors,count=0,results=[],ids=[]
         )
 
 
