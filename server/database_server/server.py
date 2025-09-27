@@ -42,6 +42,7 @@ class QueryResult(TypedDict):
     query: str
     count: int
     ids: List[int]
+    formulas: List[str]
     results: List[Dict[str, Any]]
 
 @mcp.tool()
@@ -61,12 +62,14 @@ def query_compounds(
     path = _resolve_db_path(db_path)
     results: List[Dict[str, Any]] = []
     seen_ids: set[int] = set()
+    formulas: set[str] = set()
     try:
         with connect(path) as db:
             for row in db.select(**selectors):
                 if row.id in seen_ids:
                     continue
                 seen_ids.add(row.id)
+                formulas.add(row.get("formula"))
                 results.append(
                 {
                         "id": row.id,
@@ -79,12 +82,12 @@ def query_compounds(
                 if len(results) >= limit:
                     break
             return  QueryResult(
-                query=selectors,count=len(results),results=results,ids=seen_ids
+                query=selectors,count=len(results),results=results,ids=seen_ids,formulas=formulas
             )
     except Exception as e:
         logger.error("Error querying database: %s", e)
         return QueryResult(
-            query=selectors,count=0,results=[],ids=[]
+            query=selectors,count=0,results=[],ids=[],formulas=[]
         )
 
 
