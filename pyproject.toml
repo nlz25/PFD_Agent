@@ -7,7 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "ase>=3.26.0",
     "dargs>=0.4.10",
-    "deepmd-kit==3.1.0",
+    #"deepmd-kit==3.1.0",
     "dpdata>=0.2.25",
     "fastmcp>=2.12.3",
     "google-adk>=1.1.1",
@@ -19,6 +19,18 @@ dependencies = [
     "pyyaml>=6.0.2",
     "science-agent-sdk>=0.1.8",
     "scipy>=1.16.2",
-    "tensorflow>=2.18.1",
-    "torch>=2.8.0",
+    #"tensorflow>=2.18.1",
+    #"torch>=2.8.0",
 ]
+
+[build-system]
+requires = ["setuptools>=65.5.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# Map the top-level packages to the `src` directory
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+# Look for packages under the `src` directory
+where = ["src"]

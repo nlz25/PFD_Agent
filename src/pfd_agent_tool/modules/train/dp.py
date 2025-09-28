@@ -11,17 +11,13 @@ from ase import Atoms
 from dargs import (
     Argument
 )
-from ase.io import read, write
-from dflow.python import (
-    FatalError,
-    TransientError
-)
+from ase.io import read
 import numpy as np
 import dpdata  # type: ignore
-from agents.pfd_agent.utils.ft_utils.train import Train
+from .train import Train
 from dflow.utils import run_command
 
-
+@Train.register("dpa")
 class DPTrain(Train):
     """[Modified from DPGEN2 RunDPTrain]
 
@@ -33,6 +29,15 @@ class DPTrain(Train):
     model_file = "model.pb"
     log_file = "train.log"
     lcurve_file = "lcurve.out"
+    
+    @classmethod
+    def training_meta() -> Dict[str, Any]:
+        return {
+            "version": "1.0",
+            "description": "Training routine for DPA model.",
+            "config": ["epochs"],
+            "command": DPTrain.training_args(),
+        }
     
     def _process_script(self, input_dict) -> Any:
         return self._script_rand_seed(input_dict)
@@ -171,7 +176,6 @@ class DPTrain(Train):
         clean_before_quit()
         return Path(self.model_file),Path(self.log_file),err
         
-        
 
     def _set_desc_seed(self, desc):
         """Set descriptor seed.
@@ -277,7 +281,6 @@ class DPTrain(Train):
             system = DPTrain.ase2dpdata(atoms, labeled=labeled)
             ms.append(system)
         return ms
-    
     
     @staticmethod
     def _make_train_command(
@@ -411,9 +414,6 @@ class DPTrain(Train):
         base.check_value(data, strict=True)
 
         return data
-
-
-
 
 def _get_system_path(
     data_dir:Union[str,Path]

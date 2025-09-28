@@ -2,7 +2,7 @@ from dotenv import load_dotenv
 from google.adk.models.lite_llm import LiteLlm
 # from opik.integrations.adk import OpikTracer
 from typing import Optional
-
+import os
 load_dotenv()
 
 SUPPORTED_PROVIDERS = ["openai", "deepseek", "gemini", "azure"]
@@ -45,8 +45,6 @@ class LLMConfig(object):
 
     def __init__(
         self, 
-        model_type: Optional[str] = None, 
-        api_key: Optional[str] = None,
         **kwargs
         ):
         if self._initialized:
@@ -71,21 +69,15 @@ class LLMConfig(object):
                     (provider_key, model_name),
                     DEFAULT_MODEL
                 ),
-                api_key=api_key  # Pass API key if provided
             )
-        print('model_type:',model_type)
-
-        if model_type:
-            # Use custom model type if provided
-            self.custom_model = LiteLlm(model=model_type, api_key=api_key, **kwargs)
-        else:
-            self.gpt_4o_mini = _init_model(gpt_provider, gpt_4o_mini)
-            self.gpt_4o = _init_model(gpt_provider, gpt_4o)
-            self.gemini_2_0_flash = _init_model(litellm_provider, gemini_2_0_flash)
-            self.gemini_2_5_flash = _init_model(litellm_provider, gemini_2_5_flash)
-            self.gemini_2_5_pro = _init_model(litellm_provider, gemini_2_5_pro)
-            self.claude_sonnet_4 = _init_model(litellm_provider, claude_sonnet_4)
-            self.deepseek_chat = _init_model(deepseek_provider, deepseek_chat)
+        self.ali = LiteLlm(model=os.getenv("LLM_MODEL"), api_key=os.getenv("DASHSCOPE_API_KEY"), base_url=os.getenv("BASE_URL"), **kwargs)
+        self.gpt_4o_mini = _init_model(gpt_provider, gpt_4o_mini)
+        self.gpt_4o = _init_model(gpt_provider, gpt_4o)
+        self.gemini_2_0_flash = _init_model(litellm_provider, gemini_2_0_flash)
+        self.gemini_2_5_flash = _init_model(litellm_provider, gemini_2_5_flash)
+        self.gemini_2_5_pro = _init_model(litellm_provider, gemini_2_5_pro)
+        self.claude_sonnet_4 = _init_model(litellm_provider, claude_sonnet_4)
+        self.deepseek_chat = _init_model(deepseek_provider, deepseek_chat)
 
         self._initialized = True
         
@@ -95,8 +87,8 @@ class LLMConfig(object):
         cls._instance = None
 
 
-def create_default_config(model_type: Optional[str] = None, api_key: Optional[str] = None, **kwargs) -> LLMConfig:
-    return LLMConfig(model_type=model_type, api_key=api_key, **kwargs)
+def create_default_config() -> LLMConfig:
+    return LLMConfig()
 
 
 LlmConfig = create_default_config()

@@ -1,41 +1,82 @@
-import argparse
 import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, TypedDict
-
+from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
+from dotenv import load_dotenv
 from ase.db import connect
-from ase.io import write
-from mcp.server.fastmcp import FastMCP
+from ase.io import write,read
+
+from pfd_agent_tool.init_mcp import mcp
+load_dotenv()
 
 # Globals configured at runtime
-DEFAULT_DB_PATH: Path = Path(os.environ.get("ASE_DB_PATH", "./database.db")).resolve()
+DEFAULT_DB_PATH: Path = Path(os.environ.get("ASE_DB_PATH")).resolve()
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="ASE database MCP server")
-    parser.add_argument("--db-path", type=Path, default=DEFAULT_DB_PATH, help="Path to ase.db file")
-    parser.add_argument("--host", default="0.0.0.0", help="Host for SSE transport")
-    parser.add_argument("--port", type=int, default=50001, help="Port for SSE transport")
-    parser.add_argument(
-        "--transport",
-        choices=["sse", "stdio"],
-        default="sse",
-        help="MCP transport (sse listens on host/port, stdio uses stdin/stdout)",
-    )
-    parser.add_argument("--log-level", default="INFO", help="Logging level")
-    return parser.parse_args()
-    
-args = parse_args()
-mcp = FastMCP("AseDatabaseServer", host=args.host, port=args.port)
 logger = logging.getLogger("ase_db_server")
-
 
 def _resolve_db_path(db_path: Optional[Path]) -> Path:
     path = (db_path or DEFAULT_DB_PATH).expanduser().resolve()
     if not path.exists():
         raise FileNotFoundError(f"ASE database not found at {path}")
     return path
+
+class AtomsInfoResult(TypedDict):
+    """Result structure for model training"""
+    formulas: List[str]
+    formulas_full: List[str]
+    query_atoms_path: Union[Path, str]
+
+@mcp.tool()
+def read_user_structure(
+    structures: Union[List[Path], Path],
+):
+    """Query the ASE database by atomic structure.
+    
+    This tool allows users to query the ASE database for entries that match a given atomic structure.
+    The matching is performed based on structural similarity, with an optional tolerance parameter
+    to define the acceptable deviation in atomic positions or lattice parameters.
+    
+    Args:
+        structure (Path): Path to the atomic structure file (e.g., CIF, XYZ, or other supported formats).
+        db_path (Optional[Path]): Path to the ASE database file. If not provided, the default database path
+            will be used (configured via the ASE_DB_PATH environment variable or a default value).
+        tolerance (float): Tolerance for structural matching. This defines the acceptable deviation
+            in atomic positions or lattice parameters for a match. Default is 0.1.
+        limit (Optional[int]): Maximum number of matching entries to return. If not provided, all matches
+            will be returned.
+    """
+    try:
+        # get atoms ls 
+        atoms_ls=[]
+        if isinstance(structures, Path):
+            structures = [structures]
+        for structure in structures:
+            atoms = read(structure,index=':')
+            atoms_ls.extend(atoms)
+        formulas=[]
+        formulas_full=[]  
+        for atoms in atoms_ls:
+            formula = atoms.get_chemical_formula(empirical=True)
+            formula_full = atoms.get_chemical_formula()
+            if formula_full:
+                formulas_full.append(formula_full)
+            if formula:
+                formulas.append(formula)
+                
+        query_atoms_path = Path('query_atoms.extxyz')
+        #sorted_structures = sorted([str(s.resolve()) for s in structures])
+        write(query_atoms_path, atoms_ls, format="extxyz")
+        return AtomsInfoResult(
+            formulas=formulas,
+            formulas_full=formulas_full,
+            query_atoms_path=query_atoms_path
+        )       
+    except Exception as e:
+        logger.error("Error in atoms_info: %s", e)
+        return AtomsInfoResult(
+            formulas=[],formulas_full=[],query_atoms_path=""
+        )        
 
 class QueryResult(TypedDict):
     """Result structure for model training"""
@@ -80,8 +121,6 @@ def query_compounds(
                         "key_value_pairs": dict(row.key_value_pairs or {}),
                     }
                 )
-                #if len(results) >= limit:
-                #    break
             return  QueryResult(
                 query=selectors,count=len(results),results=results,ids=seen_ids,formulas=formulas
             )
@@ -161,12 +200,3 @@ def export_entries(
             metadata_file="",
             counts={},
         )
-
-if __name__ == "__main__":
-    logging.basicConfig(level=args.log_level.upper(), format="%(asctime)s %(levelname)s %(message)s")
-    globals()["DEFAULT_DB_PATH"] = args.db_path.expanduser().resolve()
-    logger.info("Using ASE database at %s", DEFAULT_DB_PATH)
-    if args.transport == "sse":
-        mcp.run(transport="sse")
-    else:
-        mcp.run(transport="stdio")

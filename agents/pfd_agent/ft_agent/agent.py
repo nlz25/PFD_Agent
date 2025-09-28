@@ -45,7 +45,7 @@ mcp_tools_ft = MCPToolset(
 def init_ft_agent(config):
     ft_agent = LlmAgent(
         name = FTAGENT_NAME,
-        model= config.gpt_4o,
+        model= config.ali,
         instruction = FTAEGNTInstruction,
         description = FTAEGNTDescription,
         tools=[mcp_tools_ft],

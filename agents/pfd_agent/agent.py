@@ -14,16 +14,19 @@ from .prompt import (
 )
 from .utils.llm_config import LlmConfig
 from .ft_agent.agent import init_ft_agent
+from .db_agent.agent import init_db_agent
 
 class PFDAgent(Agent):
     def __init__(self, llm_config):
         prepare_state_before_agent = init_before_agent(llm_config)
         ft_agent = init_ft_agent(llm_config)
+        db_agent = init_db_agent(llm_config)
         # ...
         super().__init__(name="pfd_agent",
-                         model=llm_config.gpt_4o,
+                         model=llm_config.ali,
                          sub_agents=[
                              ft_agent,
+                             db_agent,
                              # ..._agent,
                          ],
                          # disallow_transfer_to_peers=True,
