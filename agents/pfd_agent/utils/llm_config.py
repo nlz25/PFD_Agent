@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 from google.adk.models.lite_llm import LiteLlm
 # from opik.integrations.adk import OpikTracer
+from typing import Optional
 
 load_dotenv()
 
@@ -34,21 +35,27 @@ DEFAULT_MODEL = "deepseek/deepseek-chat"
 
 class LLMConfig(object):
     _instance = None
-
-    def __new__(cls):
+    model_type: Optional[str] = None
+    custom_model: Optional[LiteLlm] = None
+    def __new__(cls, *args, **kwargs):
         if cls._instance is None:
             cls._instance = super(LLMConfig, cls).__new__(cls)
             cls._instance._initialized = False
         return cls._instance
 
-    def __init__(self):
+    def __init__(
+        self, 
+        model_type: Optional[str] = None, 
+        api_key: Optional[str] = None,
+        **kwargs
+        ):
         if self._initialized:
             return
 
         gpt_provider = "azure"
         litellm_provider = "litellm_proxy"
         deepseek_provider = "deepseek"
-        
+
         gpt_4o = "gpt-4o"
         gpt_4o_mini = "gpt-4o-mini"
         gemini_2_5_flash = "gemini-2.5-flash"
@@ -63,25 +70,33 @@ class LLMConfig(object):
                 model=MODEL_MAPPING.get(
                     (provider_key, model_name),
                     DEFAULT_MODEL
-                )
+                ),
+                api_key=api_key  # Pass API key if provided
             )
-        
-        self.gpt_4o_mini = _init_model(gpt_provider, gpt_4o_mini)
-        self.gpt_4o = _init_model(gpt_provider, gpt_4o)
-        self.gemini_2_0_flash = _init_model(litellm_provider, gemini_2_0_flash)
-        self.gemini_2_5_flash = _init_model(litellm_provider, gemini_2_5_flash)
-        self.gemini_2_5_pro = _init_model(litellm_provider, gemini_2_5_pro)
-        self.claude_sonnet_4 = _init_model(litellm_provider, claude_sonnet_4)
-        self.deepseek_chat = _init_model(deepseek_provider, deepseek_chat)
+        print('model_type:',model_type)
 
-        # tracing
-        # self.opik_tracer = OpikTracer()
+        if model_type:
+            # Use custom model type if provided
+            self.custom_model = LiteLlm(model=model_type, api_key=api_key, **kwargs)
+        else:
+            self.gpt_4o_mini = _init_model(gpt_provider, gpt_4o_mini)
+            self.gpt_4o = _init_model(gpt_provider, gpt_4o)
+            self.gemini_2_0_flash = _init_model(litellm_provider, gemini_2_0_flash)
+            self.gemini_2_5_flash = _init_model(litellm_provider, gemini_2_5_flash)
+            self.gemini_2_5_pro = _init_model(litellm_provider, gemini_2_5_pro)
+            self.claude_sonnet_4 = _init_model(litellm_provider, claude_sonnet_4)
+            self.deepseek_chat = _init_model(deepseek_provider, deepseek_chat)
 
         self._initialized = True
+        
+    @classmethod
+    def reset(cls):
+        """Reset the singleton instance."""
+        cls._instance = None
 
 
-def create_default_config() -> LLMConfig:
-    return LLMConfig()
+def create_default_config(model_type: Optional[str] = None, api_key: Optional[str] = None, **kwargs) -> LLMConfig:
+    return LLMConfig(model_type=model_type, api_key=api_key, **kwargs)
 
 
 LlmConfig = create_default_config()
