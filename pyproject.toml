@@ -1,29 +1,24 @@
-[build-system]
-requires = ["setuptools>=42", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [project]
-name = "PFD-agent"
-dynamic = ["version"]
-description = "Agent tools for PFD"
-readme = { file = "README.md", content-type = "text/markdown" }
-license = { text = "GNU Lesser General Public License v3 (LGPLv3)" }
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
-    "Operating System :: OS Independent"
-]
+name = "pfd-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "numpy",
-    "dpdata",
-    "pydflow>=1.6.57",
-    "dargs>=0.4.10",
-    "scipy",
-    "lbg",
-    "periodictable",
     "ase>=3.26.0",
+    "dargs>=0.4.10",
+    "deepmd-kit==3.1.0",
+    "dpdata>=0.2.25",
+    "fastmcp>=2.12.3",
+    "google-adk>=1.1.1",
+    "lbg>=1.2.29",
+    "litellm>=1.77.4",
+    "numpy==1.26.4",
+    "periodictable>=2.0.2",
+    "pydflow>=1.8.132",
+    "pyyaml>=6.0.2",
+    "science-agent-sdk>=0.1.8",
+    "scipy>=1.16.2",
+    "tensorflow>=2.18.1",
+    "torch>=2.8.0",
 ]
-[tool.setuptools.packages.find]
-where = ["."]
-exclude = ["server*"]
