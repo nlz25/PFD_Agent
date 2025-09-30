@@ -1,10 +1,10 @@
 import os
+from anyio import Path
 from dotenv import load_dotenv
 from google.adk.agents import LlmAgent
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
-from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
+from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
+from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams, StdioConnectionParams
 from dp.agent.adapter.adk import CalculationMCPToolset
-from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
 from .prompt import (
     FTAGENT_NAME,
     FTAEGNTInstruction, 
@@ -36,10 +36,20 @@ mcp_tools_ft = CalculationMCPToolset(
 """
 
 
-mcp_tools_ft = MCPToolset(
-    connection_params = SseServerParams(
-        url="http://dbhj1364970.bohrium.tech:50001/sse",
+mcp_tools_ft = McpToolset(
+    #connection_params = SseServerParams(
+    #    url="http://dbhj1364970.bohrium.tech:50001/sse",
+    #    ),
+    connection_params = StdioConnectionParams(
+        server_params={
+            "command": "python",
+                "args": [os.getenv("TRAIN_MCP_SERVER")],
+                "cwd": str(Path(os.getenv("TRAIN_MCP_SERVER")).parent),
+                "env": {"BASE_MODEL_PATH": os.getenv("BASE_MODEL_PATH")}
+            },
+        timeout=600
         ),
+    
 )
 
 def init_ft_agent(config):

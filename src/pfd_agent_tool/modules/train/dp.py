@@ -16,6 +16,166 @@ import numpy as np
 import dpdata  # type: ignore
 from .train import Train
 from dflow.utils import run_command
+from .prompt import DPA2_CONFIG_TEMPLATE
+from typing import cast
+
+
+# ...existing code...
+
+DPA_CONFIG_DOC: str = """
+DPA_CONFIG specification (external config for DPTrain)
+
+Type
+- dict (JSON object)
+
+Fields
+- numb_steps: int > 0 (default: 100)
+  Description: Total number of training steps. Should be compatible with the dataset size (usually corresponds to 50-100 epochs).
+- decay_steps: int >= 0 (default: 100)
+  Description: Learning-rate decay interval (in steps). Should be compatible with the dataset size (usually corresponds to one epoch).
+
+Normalization & Validation
+- Unknown keys are allowed and preserved but not used by DPTrain.
+- Keys matching the pattern "_.*" are dropped during normalization (trim_pattern="_*").
+
+Mapping to internal DeepMD (DPA2) input
+- training.numb_steps = DPA_CONFIG.numb_steps
+- training.decay_steps = DPA_CONFIG.decay_steps
+- All other fields are taken from DPA2_CONFIG_TEMPLATE defaults.
+
+Constraints & Notes
+- Provide a consistent type_map that matches the dataset species.
+- For mixed-type dataset handling, use the command.mixed_type flag (belongs to command, not config).
+
+Examples
+Minimal:
+{
+}
+
+Explicit:
+{
+  "numb_steps": 400000,
+  "decay_steps": 20000,
+}
+"""
+
+DPA_CONFIG_JSON_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "numb_steps": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 100,
+            "description": "Total number of training steps."
+        },
+        "decay_steps": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 100,
+            "description": "Learning-rate decay interval."
+        },
+    },
+    "required": []
+}
+
+
+# -----------------------------------------------------------------------------
+# Command documentation & JSON Schema (mirrors command_args())
+# -----------------------------------------------------------------------------
+DPA_COMMAND_DOC: str = """
+DPA_COMMAND specification (external command options for DPTrain)
+
+Type
+- dict (JSON object)
+
+Fields
+- command: string (default: "dp")
+    Description: Executable name or absolute path for DeepMD binary. Typically "dp".
+
+- impl: string in {"tensorflow", "pytorch"} (default: "pytorch")
+    Description: Training backend implementation. Always choose "pytorch" unless you have a specific reason to use TensorFlow.
+    Alias: backend (deprecated; refer impl)
+
+- finetune_args: string (default: "")
+    Description: Extra arguments appended to the finetune command (raw CLI fragment).
+
+- multitask: boolean (default: false)
+    Description: Enable multitask training.
+
+- head: string | null (default: null)
+    Description: Head name to use in multitask training when multitask=true; otherwise unused.
+
+- train_args: string (default: "")
+    Description: Extra arguments appended to "dp train" (raw CLI fragment).
+
+- finetune_mode: boolean (default: false)
+    Description: Whether to run in finetune mode (set to true whenever a base_model_path is provided or fine-tuning is specified).
+
+- mixed_type: boolean (default: false)
+    Description: Whether to export/consume dataset in DeepMD mixed-type (deepmd/npy/mixed) format.
+
+Normalization & Validation
+- Unknown keys are allowed and preserved but not used by DPTrain.
+- Keys matching the pattern "_.*" are dropped during normalization (trim_pattern="_*").
+- Types are coerced when possible by the dargs normalizer; otherwise a validation error may be raised.
+
+Notes
+- "backend" is accepted as an alias for "impl" during normalization but may be removed in outputs.
+- finetune_args/train_args are raw CLI strings; provide carefully.
+"""
+
+DPA_COMMAND_JSON_SCHEMA: Dict[str, Any] = {
+        "type": "object",
+        "additionalProperties": True,
+        "properties": {
+                "command": {
+                        "type": "string",
+                        "default": "dp",
+                        "description": "Executable name or path for DeepMD (e.g., 'dp').",
+                },
+                "impl": {
+                        "type": "string",
+                        "enum": ["tensorflow", "pytorch"],
+                        "default": "pytorch",
+                        "description": "Training backend implementation.",
+                },
+                "finetune_args": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Extra arguments for finetuning (raw CLI fragment).",
+                },
+                "multitask": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Enable multitask training.",
+                },
+                "head": {
+                        "type": ["string", "null"],
+                        "default": None,
+                        "description": "Head name for multitask mode; otherwise unused.",
+                },
+                "train_args": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Extra arguments for 'dp train' (raw CLI fragment).",
+                },
+                "finetune_mode": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Run in finetune mode (use init model when applicable).",
+                },
+                "mixed_type": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Use DeepMD mixed-type (deepmd/npy/mixed) dataset format.",
+                },
+        },
+        "required": []
+}
+
+
+
 
 @Train.register("dpa")
 class DPTrain(Train):
@@ -31,28 +191,38 @@ class DPTrain(Train):
     lcurve_file = "lcurve.out"
     
     @classmethod
-    def training_meta() -> Dict[str, Any]:
+    def training_meta(cls) -> Dict[str, Any]:
         return {
-            "version": "1.0",
-            "description": "Training routine for DPA model.",
-            "config": ["epochs"],
-            "command": DPTrain.training_args(),
+            "version": "v3.0",
+            "description": "The default training parameters and command for dpa models",
+            "config": {"schema": DPA_CONFIG_JSON_SCHEMA,
+                       "doc": DPA_CONFIG_DOC,},
+            "command": {"schema": DPA_COMMAND_JSON_SCHEMA,
+                        "doc": DPA_COMMAND_DOC,},
         }
     
-    def _process_script(self, input_dict) -> Any:
-        return self._script_rand_seed(input_dict)
+    def _process_script(self) -> Any:
+        input_template = DPA2_CONFIG_TEMPLATE.copy()
+        input_template["training"]["numb_steps"] = self.config.get("numb_steps")
+        input_template["learning_rate"]["decay_steps"] = self.config.get("decay_steps")
+        return self._script_rand_seed(input_template)
     
     def validate(self):
         try:
-            command = DPTrain.normalize_config(self.command)
+            command = DPTrain.normalize_command(self.command)
             self.command = command
+        except Exception as e:
+            raise KeyError(f"Invalid training command: {e}")
+        try:
+            config = DPTrain.normalize_config(self.config)
+            self.config = config
         except Exception as e:
             raise KeyError(f"Invalid training config: {e}")
 
     def run(self)->Tuple[Path, Path, str]:
         """Run the core training / optimization procedure."""
         
-        config = self._process_script(self.config)
+        config = self._process_script()
         ## prepare cli command for dp training
         dp_command = self.command.get("command", "dp").split()
         impl = self.command.get("impl", "tensorflow")
@@ -66,8 +236,15 @@ class DPTrain(Train):
         mixed_type = self.command.pop("mixed_type",False)
 
         ## convert extxyz to dpdata systems...
-        train_data= read(self.train_data,index=":")
-        train_data=DPTrain.ase2multisys(train_data,labeled=True)
+        atoms_ls=[]
+        if isinstance(self.train_data, Path):
+            self.train_data=[self.train_data]
+        for f in self.train_data:
+            train_data= read(f,index=":")
+            atoms_ls.extend(train_data)
+            
+            
+        train_data=DPTrain.ase2multisys(atoms_ls,labeled=True)
         if mixed_type:
             train_data.to("deepmd/npy/mixed", "./train_data")
         else:
@@ -85,7 +262,6 @@ class DPTrain(Train):
             valid_data = None
             
         # auto prob style
-        do_init_model = False
         auto_prob_str = "prob_sys_size"
         
         config = DPTrain.write_data_to_input_script(
@@ -114,11 +290,9 @@ class DPTrain(Train):
             dp_command,
             self.train_script_name,
             impl,
-            do_init_model,
             self.model_path,
             finetune_mode,
             finetune_args,
-            False,# init_model_with_finetune,
             train_args,
             )
 
@@ -176,6 +350,94 @@ class DPTrain(Train):
         clean_before_quit()
         return Path(self.model_file),Path(self.log_file),err
         
+    def test(
+        self
+    ) -> Tuple[Path, Dict[str, float]]:
+        """Evaluate a trained DeepMD model on a list of labeled datasets using ASE.
+
+        Returns:
+            (out_dir, metrics) where metrics contains mae/rmse for energy and forces if labels are present.
+        """
+        try:
+            from deepmd.calculator import DP as DeepmdCalculator  # type: ignore
+        except Exception as e:
+            raise RuntimeError(
+                "Failed to import deepmd ASE calculator (deepmd.calculator.DP). "
+                "Install deepmd-kit with ASE support or run evaluation externally."
+            ) from e
+        
+        out_dir = Path("./test_output")
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        model_fp = Path(self.model_file)
+        if not Path(model_fp).exists():
+            raise FileNotFoundError(f"Model file not found: {model_fp}")
+        calc = DeepmdCalculator(model=str(model_fp))
+
+        self.test_results=[]
+        for idx, data in enumerate(self.test_data):
+            atoms_ls: List[Atoms] = read(str(data), index=":")
+            pred_e: List[float] = []
+            lab_e: List[float] = []
+            pred_f: List[float] = []
+            lab_f: List[float] = []
+            atom_num: List[int] = []
+            for atoms in atoms_ls:
+                lab_e.append(atoms.get_potential_energy())
+                lab_f.append(atoms.get_forces().flatten())
+                atoms.calc=calc
+                pred_e.append(atoms.get_potential_energy())
+                pred_f.append(atoms.get_forces().flatten())
+                atom_num.append(atoms.get_number_of_atoms())
+
+            atom_num = np.array(atom_num)
+            # energy prediction
+            pred_e = np.array(pred_e)
+            lab_e = np.array(lab_e)
+            pred_e_atom = pred_e / atom_num
+            lab_e_atom = lab_e / atom_num
+
+            # force prediction
+            pred_f = np.hstack(pred_f)
+            lab_f = np.hstack(lab_f)
+        
+            np.savetxt(
+               str(out_dir / ("test_%02d_.energy.txt"%idx)),
+                np.column_stack((lab_e, pred_e)),
+                header='',
+                comments='#',
+                fmt="%.6f",
+                )
+            np.savetxt(
+                str(out_dir / ("test_%02d_.energy_per_atom.txt"%idx)),
+                np.column_stack((lab_e_atom, pred_e_atom)),
+                header='',
+                comments='#',
+                fmt="%.6f",
+                )
+
+            np.savetxt(
+                str(out_dir / ("test_%02d_.force.txt"%idx)),
+                np.column_stack((lab_f, pred_f)),
+                header='',
+                comments='#',
+                fmt="%.6f",
+                )
+
+            metrics: Dict[str, float] = {
+                "system_idx": "%02d"%idx,
+                "mae_e": _mae(pred_e, lab_e),
+                "rmse_e": _rmse(pred_e, lab_e),
+                "mae_e_atom": _mae(pred_e_atom, lab_e_atom),
+                "rmse_e_atom": _rmse(pred_e_atom, lab_e_atom),
+                "mae_f": _mae(pred_f, lab_f) if lab_f.size else float('nan'),
+                "rmse_f": _rmse(pred_f, lab_f) if lab_f.size else float('nan'),
+                "n_frames": float(len(atoms_ls)),
+                }
+
+            logging.info(f"Test completed on {len(atoms_ls)} frames. Metrics: {metrics}")
+            self.test_results.append(metrics)
+        return out_dir, self.test_results
 
     def _set_desc_seed(self, desc):
         """Set descriptor seed.
@@ -287,11 +549,9 @@ class DPTrain(Train):
         dp_command,
         train_script_name,
         impl,
-        do_init_model,
         init_model,
         finetune_mode,
         finetune_args,
-        init_model_with_finetune,
         train_args="",
         ):
         # find checkpoint
@@ -309,19 +569,8 @@ class DPTrain(Train):
             return command
         # case of init model and finetune
         assert checkpoint is None
-        case_init_model = do_init_model and (not init_model_with_finetune)
-        case_finetune = finetune_mode == True or (
-            do_init_model and init_model_with_finetune
-            )
-        if case_init_model:
-            init_flag = "--init-frz-model" if impl == "tensorflow" else "--init-model"
-            command = dp_command + [
-                "train",
-                init_flag,
-                str(init_model),
-                train_script_name,
-            ]
-        elif case_finetune:
+        
+        if finetune_mode is True and os.path.isfile(init_model):
             command = (
             dp_command
             + [
@@ -336,8 +585,9 @@ class DPTrain(Train):
             command = dp_command + ["train", train_script_name]
         command += train_args.split()
         return command
+    
     @staticmethod
-    def training_args():
+    def command_args():
         doc_command = "The command for DP, 'dp' for default"
         doc_impl = "The implementation/backend of DP. It can be 'tensorflow' or 'pytorch'. 'tensorflow' for default."
         doc_finetune_args = "Extra arguments for finetuning"
@@ -358,7 +608,7 @@ class DPTrain(Train):
                 "impl",
                 str,
                 optional=True,
-                default="tensorflow",
+                default="pytorch",
                 doc=doc_impl,
                 alias=["backend"],
             ),
@@ -406,13 +656,27 @@ class DPTrain(Train):
             ),
         ]
     @staticmethod
-    def normalize_config(data={}):
-        ta = DPTrain.training_args()
-
+    def normalize_command(data={}):
+        ta = DPTrain.command_args()
         base = Argument("base", dict, ta)
         data = base.normalize_value(data, trim_pattern="_*")
         base.check_value(data, strict=True)
-
+        return data
+    
+    @staticmethod
+    def config_args():
+        return [
+            Argument("numb_steps", int, optional=True, default=100, doc="Number of training steps"),  
+            Argument("type_map",List[str],optional=True,default=["Si"],doc="List of atomic types in the training system. Examples: ['H','O']"),          
+            Argument("decay_steps", int, optional=True, default=100, doc="Decay steps for learning rate decay"),
+        ]
+        
+    @staticmethod
+    def normalize_config(data={}):
+        ta = DPTrain.config_args()
+        base = Argument("base", dict, ta)
+        data = base.normalize_value(data, trim_pattern="_*")
+        base.check_value(data, strict=False)
         return data
 
 def _get_system_path(
@@ -421,3 +685,10 @@ def _get_system_path(
     return [Path(ii).parent for ii in glob.glob(str(data_dir) + "/**/type.raw",recursive=True)]
 
 
+def _mae(a, b):
+            mask = np.isfinite(a) & np.isfinite(b)
+            return float(np.mean(np.abs(a[mask] - b[mask]))) if mask.any() else float('nan')
+
+def _rmse(a, b):
+            mask = np.isfinite(a) & np.isfinite(b)
+            return float(np.sqrt(np.mean((a[mask] - b[mask]) ** 2))) if mask.any() else float('nan')
