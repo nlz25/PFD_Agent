@@ -1,0 +1,209 @@
+🚀 启动 Agent WebSocket 服务器...
+📡 使用 Session 模式运行 rootagent
+🌐 WebSocket 端点: ws://localhost:8000/ws
+INFO:     Started server process [49871]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:52110 - "WebSocket /ws" [accepted]
+INFO:__main__:新用户连接: user_18869970
+INFO:__main__:为用户 user_18869970 创建新会话: af5d7f94-4bcb-40c2-bb54-0cb547308c9f
+INFO:     connection open
+INFO:__main__:Runner 初始化完成: af5d7f94-4bcb-40c2-bb54-0cb547308c9f
+INFO:     127.0.0.1:52126 - "GET /api/config HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52127 - "GET /api/files/tree?path=output HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52128 - "GET /api/files/tree?path=uploaded_files HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52129 - "WebSocket /ws" [accepted]
+INFO:__main__:新用户连接: user_68beb35b
+INFO:__main__:为用户 user_68beb35b 创建新会话: 60f81436-0d4b-48a2-8502-5eff540385e7
+INFO:     connection open
+INFO:__main__:Runner 初始化完成: 60f81436-0d4b-48a2-8502-5eff540385e7
+INFO:__main__:用户断开连接: user_68beb35b
+INFO:     connection closed
+INFO:     127.0.0.1:52143 - "GET /api/config HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52144 - "GET /api/files/tree?path=output HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52145 - "GET /api/files/tree?path=uploaded_files HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52146 - "WebSocket /ws" [accepted]
+INFO:__main__:新用户连接: user_56cba508
+INFO:__main__:为用户 user_56cba508 创建新会话: 97bb0e5c-7210-4706-9259-60000f7f1005
+INFO:     connection open
+INFO:__main__:Runner 初始化完成: 97bb0e5c-7210-4706-9259-60000f7f1005
+[92m07:16:25 - LiteLLM:INFO[0m: utils.py:3373 - 
+LiteLLM completion() model= gpt-4o; provider = azure
+INFO:LiteLLM:
+LiteLLM completion() model= gpt-4o; provider = azure
+INFO:__main__:Received event: Event
+INFO:__main__:Total events: 1
+INFO:__main__:Sending final response: 我的主要功能是协作和协调不同任务，涉及数据生成、模型微调和数据库更新等领域。下面是我的具体职责：
+
+1. **微调和训练模型**：
+   - 管理和执行机器学习力场模型的微调。
+   - 分析数据集，创建微调配置和命令，启动训练任务。
+   - 如果涉及微调任务，我会将请求转移到子代理“ft_agent”。
+
+2. **数据库操作**：
+   - 查询、插入或导出与模型、数据或微调相关的信息。
+ 
+INFO:__main__:本地已保存上传文件副本: uploaded_files/config.json
+INFO:__main__:本地已保存上传文件副本: uploaded_files/data.extxyz
+[92m07:16:55 - LiteLLM:INFO[0m: utils.py:3373 - 
+LiteLLM completion() model= gpt-4o; provider = azure
+INFO:LiteLLM:
+LiteLLM completion() model= gpt-4o; provider = azure
+INFO:     127.0.0.1:52229 - "GET /api/files/tree?path=output HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52230 - "GET /api/files/tree?path=uploaded_files HTTP/1.1" 200 OK
+INFO:__main__:Received event: Event
+INFO:__main__:Tool call detected: transfer_to_agent (long_running: False)
+INFO:__main__:Received event: Event
+INFO:__main__:Tool response received: transfer_to_agent
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+[92m07:16:57 - LiteLLM:INFO[0m: utils.py:3373 - 
+LiteLLM completion() model= gpt-4o; provider = azure
+INFO:LiteLLM:
+LiteLLM completion() model= gpt-4o; provider = azure
+INFO:     127.0.0.1:52236 - "GET /api/files/tree?path=output HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52237 - "GET /api/files/tree?path=uploaded_files HTTP/1.1" 200 OK
+INFO:__main__:Received event: Event
+INFO:__main__:Tool call detected: get_artifact_path (long_running: False)
+INFO:__main__:Tool call detected: get_artifact_path (long_running: False)
+INFO:__main__:Received event: Event
+INFO:__main__:Tool response received: get_artifact_path
+INFO:__main__:Tool response received: get_artifact_path
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+[92m07:16:58 - LiteLLM:INFO[0m: utils.py:3373 - 
+LiteLLM completion() model= gpt-4o; provider = azure
+INFO:LiteLLM:
+LiteLLM completion() model= gpt-4o; provider = azure
+INFO:     127.0.0.1:52249 - "GET /api/files/tree?path=output HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52250 - "GET /api/files/tree?path=uploaded_files HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52255 - "GET /api/files/tree?path=output HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52256 - "GET /api/files/tree?path=uploaded_files HTTP/1.1" 200 OK
+INFO:__main__:Received event: Event
+INFO:__main__:Tool call detected: check_train_data (long_running: False)
+INFO:__main__:Received event: Event
+INFO:__main__:Tool response received: check_train_data
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+[92m07:16:59 - LiteLLM:INFO[0m: utils.py:3373 - 
+LiteLLM completion() model= gpt-4o; provider = azure
+INFO:LiteLLM:
+LiteLLM completion() model= gpt-4o; provider = azure
+INFO:     127.0.0.1:52263 - "GET /api/files/tree?path=output HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52264 - "GET /api/files/tree?path=uploaded_files HTTP/1.1" 200 OK
+INFO:__main__:Received event: Event
+INFO:__main__:Tool call detected: list_training_strategies (long_running: False)
+INFO:__main__:Received event: Event
+INFO:__main__:Tool response received: list_training_strategies
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+[92m07:17:01 - LiteLLM:INFO[0m: utils.py:3373 - 
+LiteLLM completion() model= gpt-4o; provider = azure
+INFO:LiteLLM:
+LiteLLM completion() model= gpt-4o; provider = azure
+INFO:     127.0.0.1:52269 - "GET /api/files/tree?path=output HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52270 - "GET /api/files/tree?path=uploaded_files HTTP/1.1" 200 OK
+INFO:__main__:Received event: Event
+INFO:__main__:Tool call detected: train_input_doc (long_running: False)
+INFO:__main__:Received event: Event
+INFO:__main__:Tool response received: train_input_doc
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+[92m07:17:02 - LiteLLM:INFO[0m: utils.py:3373 - 
+LiteLLM completion() model= gpt-4o; provider = azure
+INFO:LiteLLM:
+LiteLLM completion() model= gpt-4o; provider = azure
+INFO:     127.0.0.1:52275 - "GET /api/files/tree?path=output HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52276 - "GET /api/files/tree?path=uploaded_files HTTP/1.1" 200 OK
+INFO:__main__:Received event: Event
+INFO:__main__:Tool call detected: file_read_artifact (long_running: False)
+INFO:__main__:Received event: Event
+INFO:__main__:Tool response received: file_read_artifact
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+[92m07:17:04 - LiteLLM:INFO[0m: utils.py:3373 - 
+LiteLLM completion() model= gpt-4o; provider = azure
+INFO:LiteLLM:
+LiteLLM completion() model= gpt-4o; provider = azure
+INFO:     127.0.0.1:52282 - "GET /api/files/tree?path=output HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52283 - "GET /api/files/tree?path=uploaded_files HTTP/1.1" 200 OK
+INFO:__main__:Received event: Event
+INFO:__main__:Tool call detected: check_input (long_running: False)
+INFO:__main__:Received event: Event
+INFO:__main__:Tool response received: check_input
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+[92m07:17:10 - LiteLLM:INFO[0m: utils.py:3373 - 
+LiteLLM completion() model= gpt-4o; provider = azure
+INFO:LiteLLM:
+LiteLLM completion() model= gpt-4o; provider = azure
+INFO:     127.0.0.1:52300 - "GET /api/files/tree?path=output HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52301 - "GET /api/files/tree?path=uploaded_files HTTP/1.1" 200 OK
+INFO:__main__:Received event: Event
+INFO:__main__:Tool call detected: training (long_running: False)
+INFO:root:Training completed!
+INFO:__main__:Received event: Event
+INFO:__main__:Tool response received: training
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+WARNING:google_adk.google.adk.tools._function_parameter_parse_util:Default value is not supported in function declaration schema for Google AI.
+[92m07:17:45 - LiteLLM:INFO[0m: utils.py:3373 - 
+LiteLLM completion() model= gpt-4o; provider = azure
+INFO:LiteLLM:
+LiteLLM completion() model= gpt-4o; provider = azure
+INFO:     127.0.0.1:52318 - "GET /api/files/uploaded_files/config.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52339 - "GET /api/files/tree?path=output HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52340 - "GET /api/files/tree?path=uploaded_files HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52331 - "GET /api/files/uploaded_files/data.extxyz HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52359 - "GET /api/files/tree?path=output HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52360 - "GET /api/files/tree?path=uploaded_files HTTP/1.1" 200 OK
+INFO:__main__:Received event: Event
+INFO:__main__:Total events: 17
+INFO:__main__:Sending final response: 模型训练已完成，以下是结果：
+
+- **模型文件路径**: `/Users/zhanggan/PycharmProjects/PFD_AGENT/src/output/model.ckpt.pt`
+- **训练日志路径**: `/Users/zhanggan/PycharmProjects/PFD_AGENT/src/output/train.log`
+- **日志摘要**:
+  - 模型在训练开
+INFO:     127.0.0.1:52382 - "GET /api/files/output/train.log HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52394 - "GET /api/files/output/lcurve.out HTTP/1.1" 200 OK
+INFO:__main__:用户断开连接: user_56cba508
+INFO:     connection closed
+INFO:__main__:用户断开连接: user_18869970
+INFO:     connection closed
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [49871]

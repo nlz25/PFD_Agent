@@ -1,0 +1,24 @@
+[project]
+name = "pfd-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ase>=3.26.0",
+    "dargs>=0.4.10",
+    "deepmd-kit==3.1.0",
+    "dotenv>=0.9.9",
+    "dpdata==0.2.25",
+    "google-adk[a2a]==1.14.1",
+    "litellm>=1.77.7",
+    "pydflow>=1.6.37",
+    "tensorflow==2.18.1",
+    "torch==2.8.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}  
+
+[tool.setuptools.packages.find]
+where = ["src"]  

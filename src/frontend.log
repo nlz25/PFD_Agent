@@ -1,0 +1,55 @@
+
+> -ui@1.0.0 dev
+> vite
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+Re-optimizing dependencies because vite config has changed
+
+  VITE v5.4.20  ready in 561 ms
+
+  ➜  Local:   http://localhost:50002/
+  ➜  Network: http://172.20.25.168:50002/
+  ➜  Network: http://172.21.32.2:50002/
+[vite:css] @import must precede all other statements (besides @charset or empty @layer)
+3  |  @tailwind utilities;
+4  |  
+5  |  @import './animations.css';
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+6  |  
+7  |  /* Apple-style custom styles */
+07:16:03 [vite] http proxy error: /api/config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+07:16:03 [vite] http proxy error: /api/files/tree?path=output
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+07:16:03 [vite] ws proxy error:
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+07:16:03 [vite] http proxy error: /api/files/tree?path=uploaded_files
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+07:16:03 [vite] http proxy error: /api/config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+07:16:03 [vite] http proxy error: /api/files/tree?path=output
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+07:16:03 [vite] http proxy error: /api/files/tree?path=uploaded_files
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+07:16:03 [vite] ws proxy error:
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+07:16:06 [vite] ws proxy error:
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
