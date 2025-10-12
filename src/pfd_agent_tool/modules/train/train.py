@@ -13,7 +13,8 @@ from typing import (
 )
 from abc import ABC, abstractmethod
 from pfd_agent_tool.init_mcp import mcp
-import json
+from pfd_agent_tool.modules.util.common import generate_work_path
+import os
 from ase.io import read, write
 from jsonschema import validate, ValidationError
 
@@ -359,12 +360,19 @@ def training(
         runner = cls(config=config, train_data=train_data, command=command, model_path=model_path,
                  valid_data=valid_data, test_data=test_data)
         runner.validate()
+        work_path=Path(generate_work_path()).absolute()
+        work_path.mkdir(parents=True, exist_ok=True)
+        cwd = os.getcwd()
+        # change to workdir
+        os.chdir(work_path)
         model, log, message = runner.run()
         logging.info("Training completed!")
         test_metrics = None
         if test_data:
             _, test_metrics = runner.test()
+        os.chdir(cwd)
         return TrainingResult(model=model, log=log, message=message, test_metrics=test_metrics)
+    
     except Exception as e:
         logging.exception("Training failed")
         return TrainingResult(model=Path(""), log=Path(""), message=f"Training failed: {e}", test_metrics=None)

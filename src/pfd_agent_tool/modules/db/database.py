@@ -37,20 +37,30 @@ class QueryResult(TypedDict):
 def read_user_structure(
     structures: Union[List[Path], Path],
 ):
-    """Query the ASE database by atomic structure.
-    
-    This tool allows users to query the ASE database for entries that match a given atomic structure.
-    The matching is performed based on structural similarity, with an optional tolerance parameter
-    to define the acceptable deviation in atomic positions or lattice parameters.
-    
+    """Extract chemical compositions from user-provided structure file(s) for downstream DB queries.
+
+    Purpose:
+        This tool does NOT query the ASE database. Instead, it parses one or more input structure
+        files (each may contain multiple frames) to extract chemical compositions. The aggregated
+        frames are written into a single extxyz file, and the list of compositions is returned so
+        the agent can build a query with `query_compounds`.
+
     Args:
-        structure (Path): Path to the atomic structure file (e.g., CIF, XYZ, or other supported formats).
-        db_path (Optional[Path]): Path to the ASE database file. If not provided, the default database path
-            will be used (configured via the ASE_DB_PATH environment variable or a default value).
-        tolerance (float): Tolerance for structural matching. This defines the acceptable deviation
-            in atomic positions or lattice parameters for a match. Default is 0.1.
-        limit (Optional[int]): Maximum number of matching entries to return. If not provided, all matches
-            will be returned.
+        structures (Path | List[Path]): One or more structure files to read (e.g., .cif, .xyz, .extxyz,
+            POSCAR). Each file may contain multiple frames; all frames will be aggregated.
+
+    Returns:
+        AtomsInfoResult:
+            - formulas: List[str] of empirical formulas (e.g., "NaCl", "SiO2").
+            - formulas_full: List[str] of full chemical formulas as reported by ASE.
+            - query_atoms_path: Path to an extxyz file containing all parsed frames, which can be
+              used for inspection or further processing.
+
+    Notes:
+        - Use the returned `formulas`/`formulas_full` to construct selectors for `query_compounds`.
+          For example, to search for entries containing Na and Cl, build a selector like 'Na,Cl' or a
+          more specific expression using the database’s supported fields.
+        - This function performs no database I/O.
     """
     try:
         # get atoms ls 

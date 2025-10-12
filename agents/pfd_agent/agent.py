@@ -32,7 +32,7 @@ class PFDAgent(Agent):
                             ft_agent,
                             db_agent,
                             expl_agent,
-                            stru_agent,
+                            #stru_agent,
                              # ..._agent,
                          ],
                          # disallow_transfer_to_peers=True,

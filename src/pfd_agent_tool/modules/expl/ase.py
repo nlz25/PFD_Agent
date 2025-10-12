@@ -330,8 +330,9 @@ def _run_md_stage(atoms, stage, save_interval_steps, traj_file, seed, stage_id):
     # Run simulation
     dyn.run(total_steps)
     logging.info(f"[Stage {stage_id}] Finished simulation. Trajectory saved to: {traj_file}\n")
+    #traj_file=Path(traj_file).absolute()
 
-    return atoms
+    return atoms#, traj_file
 
 def _run_md_pipeline(atoms, stages, save_interval_steps=100, traj_prefix='traj', traj_dir='trajs_files', seed=42):
     """Run multiple MD stages sequentially"""
@@ -375,8 +376,8 @@ def run_molecular_dynamics(
 
     Args:
         initial_structure (Path): Input atomic structure file (supports .xyz, .cif, etc.)
-        model_path (Path): Path to the Deep Potential model file (.pt or .pb)
-            Default options are {'DPA2.4-7M': "https://bohrium.oss-cn-zhangjiakou.aliyuncs.com/13756/27666/store/upload/cd12300a-d3e6-4de9-9783-dd9899376cae/dpa-2.4-7M.pt", "DPA3.1-3M": "https://bohrium.oss-cn-zhangjiakou.aliyuncs.com/13756/27666/store/upload/18b8f35e-69f5-47de-92ef-af8ef2c13f54/DPA-3.1-3M.pt"}.
+        model_path (Path): Path to the model file
+            If not provided, using the `get_base_model_path` tool to obtain the default model path.
         stages (List[Dict]): List of simulation stages. Each dictionary can contain:
             - mode (str): Simulation ensemble type. One of:
                 * "NVT" or "NVT-NH"- NVT ensemble (constant Particle Number, Volume, Temperature), with Nosé-Hoover (NH) chain thermostat
@@ -410,8 +411,7 @@ def run_molecular_dynamics(
           optional fields as top-level arguments (they will be forwarded to the calculator).
 
     Returns: A dictionary containing:
-            - final_structure (Path): Final atomic structure after all stages.
-            - trajectory_dir (Path): The path of output directory of trajectory files generated.
+            - trajectory_list (List[Path]): The paths of output trajectory files generated.
             - log_file (Path): Path to the log file containing simulation output.
 
     Examples:
@@ -459,7 +459,7 @@ def run_molecular_dynamics(
     log_file = work_path / "md_simulation.log"
     
     # Read initial structure
-    atoms = read(initial_structure)
+    atoms_ls = read(initial_structure,index=':')
     
     # Setup calculator
     # Flatten an accidentally nested 'kwargs' dict sent by clients; keep robust and log
@@ -471,40 +471,115 @@ def run_molecular_dynamics(
             kwargs.setdefault(k, v)
     calc=CalculatorWrapper.get_calculator(model_style)
     calc=calc().create(model_path=model_path, **kwargs)
-    atoms.calc = calc
     
-    # Run MD pipeline
-    final_atoms = _run_md_pipeline(
-        atoms=atoms,
-        stages=stages,
-        save_interval_steps=save_interval_steps,
-        traj_prefix=traj_prefix,
-        traj_dir=str(traj_dir),
-        seed=seed
+    #final_structures_ls=[]
+    for idx,atoms in enumerate(atoms_ls):
+        atoms.calc = calc
+        # Run MD pipeline
+        _ = _run_md_pipeline(
+            atoms=atoms,
+            stages=stages,
+            save_interval_steps=save_interval_steps,
+            traj_prefix=traj_prefix+("_%03d"%idx),
+            traj_dir=str(traj_dir),
+            seed=seed
     )
     
     # Save final structure
-    final_structure = work_path / "final_structure.xyz"
-    write(final_structure, final_atoms)
+        #final_structure = work_path / ("final_structure_%03d.xyz"%idx)
+        #write(final_structure, final_atoms)
+        #final_structures_ls.append(final_structure)
+    
+    traj_list = sorted(
+        p.resolve()  # use resolve(strict=True) if you want to fail on broken links
+        for p in Path(traj_dir).glob("*.extxyz")
+        )
     
     result = {
-        "final_structure": final_structure,
-        "trajectory_dir": traj_dir,
+        #"final_structure_list": final_structures_ls,
+        "trajectory_list": traj_list,
         "log_file": log_file
     }
     
-    for i, stage in enumerate(stages):
-        mode = stage['mode']
-        T = stage.get('temperature_K', 'NA')
-        P = stage.get('pressure', 'NA')
-
-        tag = f"stage{i+1}_{mode}_{T}K"
-        if P != 'NA':
-            tag += f"_{P}GPa"
-        traj_file = os.path.join("trajs_files", f"{traj_prefix}_{tag}.extxyz")
-        
-        result[f"stage_{i+1}"] = Path(traj_file)
-    
     return result
 
+@mcp.tool()
+def get_base_model_path(model_path: Optional[Path]) -> Optional[Path]:
+    """Resolve a usable base model path when fine-tuning. Do not invoke this tool if not fine-tuning.
 
+    Behavior:
+    1) Prefer the explicitly provided `model_path` if given.
+    2) Otherwise, read from environment variable `BASE_MODEL_PATH`.
+    3) Normalize local paths (expanduser + resolve). If a directory is provided,
+       try to find a model file inside with common suffixes (.pt, .pth, .pb).
+    4) If an HTTP(S) URL is provided, return it as-is.
+
+    Returns: A dictionary contains:
+        - base_model_path: normalized local Path or an HTTP(S) URI string (framework will serialize Paths),
+        or None if nothing can be determined.
+    """
+
+    def _is_url(s: str) -> bool:
+        return s.startswith("http://") or s.startswith("https://")
+
+    def _as_path_or_str(p: Optional[Path | str]) -> Optional[Path | str]:
+        if p is None:
+            return None
+        # Accept strings (including URLs) or Path-like
+        if isinstance(p, Path):
+            return p
+        if isinstance(p, str) and _is_url(p):
+            return p  # return URL as-is
+        # Otherwise, treat as filesystem path
+        try:
+            return Path(p).expanduser().resolve()
+        except Exception:
+            return Path(p)
+
+    def _pick_model_in_dir(d: Path) -> Optional[Path]:
+        if not d.is_dir():
+            return None
+        # Preference order
+        candidates = []
+        for suf in ("*.pt", "*.pth", "*.pb"):
+            candidates.extend(sorted(d.glob(suf)))
+        return candidates[0] if candidates else None
+
+    # 1) Prefer explicit argument
+    source = model_path if model_path not in (None, "") else None
+    # 2) Else environment
+    if source is None:
+        env_val = os.getenv("BASE_MODEL_PATH", "").strip()
+        source = env_val if env_val else None
+
+    if source is None:
+        return None
+
+    resolved = _as_path_or_str(source)
+
+    # If URL, return as-is
+    if isinstance(resolved, str) and _is_url(resolved):
+        return resolved  # type: ignore[return-value]
+
+    # Local path handling
+    assert isinstance(resolved, Path)
+
+    # If it's a file with a known suffix, return it
+    if resolved.suffix.lower() in {".pt", ".pth", ".pb"}:
+        return resolved
+
+    # If it's a directory, try to pick a model file inside
+    if resolved.is_dir():
+        picked = _pick_model_in_dir(resolved)
+        if picked is not None:
+            return picked
+        # Fall back to directory itself if no files are found
+        return resolved
+
+    # For unknown suffixes or non-existing paths: if it looks like a file with a known model suffix
+    # in the name, just return it; otherwise return the parent as a best-effort "base" path.
+    if any(str(resolved).lower().endswith(s) for s in (".pt", ".pth", ".pb")):
+        return resolved
+
+    
+    return {"base_model_path": resolved.parent if resolved.parent != resolved else resolved}

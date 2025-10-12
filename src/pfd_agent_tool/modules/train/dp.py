@@ -17,7 +17,6 @@ import dpdata  # type: ignore
 from .train import Train
 from dflow.utils import run_command
 from .prompt import DPA2_CONFIG_TEMPLATE
-from typing import cast
 
 
 # ...existing code...
@@ -348,7 +347,7 @@ class DPTrain(Train):
         fplog.write("#=================== freeze std err ===================\n")
         fplog.write(err)
         clean_before_quit()
-        return Path(self.model_file),Path(self.log_file),err
+        return Path(self.model_file).resolve(),Path(self.log_file).resolve(),err
         
     def test(
         self
