@@ -505,7 +505,7 @@ def run_molecular_dynamics(
 
 @mcp.tool()
 def get_base_model_path(model_path: Optional[Path]) -> Optional[Path]:
-    """Resolve a usable base model path when fine-tuning. Do not invoke this tool if not fine-tuning.
+    """Resolve a usable base model path before using `run_molecular_dynamics` tool.
 
     Behavior:
     1) Prefer the explicitly provided `model_path` if given.
