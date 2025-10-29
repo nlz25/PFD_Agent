@@ -14,6 +14,7 @@ from typing import (
 from abc import ABC, abstractmethod
 from pfd_agent_tool.init_mcp import mcp
 from pfd_agent_tool.modules.util.common import generate_work_path
+from pfd_agent_tool.modules.log.log import log_step
 import os
 from ase.io import read, write
 from jsonschema import validate, ValidationError
@@ -339,6 +340,7 @@ class TrainingResult(TypedDict):
     message: str
     test_metrics: Optional[List[Dict[str, Any]]]
 @mcp.tool()
+@log_step(step_name="training")
 def training(
     config: Dict[str, Any], #= load_json_file(CONFIG_PATH),
     train_data: Path,# = Path(TRAIN_DATA_PATH),
@@ -352,6 +354,7 @@ def training(
     
     Args:
         config: Configuration parameters for training (You can find an example for `config` from the 'list_and_describe_training_strategy' tool').
+        command: Command parameters for training (You can find an example for `command` from the 'list_and_describe_training_strategy' tool').
         train_data: Path to the training dataset (required).
     
     """
@@ -371,8 +374,21 @@ def training(
         if test_data:
             _, test_metrics = runner.test()
         os.chdir(cwd)
-        return TrainingResult(model=model, log=log, message=message, test_metrics=test_metrics)
+        result ={
+            "status":"success",
+            "model": str(model.resolve()),
+            "log": str(log.resolve()),
+            "message": message,
+            "test_metrics": test_metrics
+                }
     
     except Exception as e:
         logging.exception("Training failed")
-        return TrainingResult(model=Path(""), log=Path(""), message=f"Training failed: {e}", test_metrics=None)
+        
+        result={
+            "status":"error",
+            "model": None,
+            "log": None,
+            "message": f"Training failed: {str(e)}",
+        }
+    return result

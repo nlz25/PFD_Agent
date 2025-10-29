@@ -152,7 +152,7 @@ def _h_filter_gpu(
     H= entropy(x, h=h, batch_size=batch_size,device=device)
     logging.info(f"Initial entropy with {len(dset_confs)} reference configurations: {H:.4f}")
     H_list.append(float(H.cpu().numpy()))
-    result.update({"iter_00": H, "num_confs": len(dset_confs)})
+    result.update({"num_confs": len(dset_confs),"iter_00": float(H.cpu().numpy())})
     indices = []
     for ii in range(max_iter):
         re_indices = [i for i in range(len(iter_confs)) if i not in indices]

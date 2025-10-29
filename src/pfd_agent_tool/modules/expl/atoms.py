@@ -5,13 +5,10 @@ from ase.io import write,read
 from .filter import _h_filter_cpu, _h_filter_gpu
 from pfd_agent_tool.init_mcp import mcp
 from pfd_agent_tool.modules.util.common import generate_work_path
-
-class FilterByEntropyResult(TypedDict):
-    select_atoms: Path
-    entroy: Dict[str, Any]
-
+from pfd_agent_tool.modules.log.log import log_step
 
 @mcp.tool()
+@log_step(step_name="explore_filter_by_entropy")
 def filter_by_entropy(
     iter_confs: Union[List[Path], Path],
     reference: Union[List[Path], Path] = [],
@@ -21,7 +18,8 @@ def filter_by_entropy(
     batch_size: int = 1000,
     h = 0.015,
     max_sel: int =100,
-    **kwargs):
+    **kwargs
+    ):
     """Select a diverse subset of configurations by maximizing dataset entropy.
 
     This tool performs iterative, entropy-based subset selection from a pool of candidate
@@ -113,11 +111,11 @@ def filter_by_entropy(
         try:
             import torch
             logging.info("Using torch entropy calculation")
-            select_atoms, result = _h_filter_gpu(iter_confs,reference,chunk_size=chunk_size,max_sel=max_sel,
+            select_atoms, select_result = _h_filter_gpu(iter_confs,reference,chunk_size=chunk_size,max_sel=max_sel,
                                  k=k,cutoff=cutoff,batch_size=batch_size,h=h,**kwargs)
         except ImportError:
             logging.info("Using CPU entropy (torch not available)")
-            select_atoms, result = _h_filter_cpu(iter_confs,reference,chunk_size=chunk_size,max_sel=max_sel,
+            select_atoms, select_result = _h_filter_cpu(iter_confs,reference,chunk_size=chunk_size,max_sel=max_sel,
                                  k=k,cutoff=cutoff,batch_size=batch_size,h=h,**kwargs)
         work_path=Path(generate_work_path())
         work_path=work_path.expanduser().resolve()
@@ -125,14 +123,21 @@ def filter_by_entropy(
         select_atoms_path = work_path / "selected.extxyz"
         write(select_atoms_path, select_atoms)
         
-        return FilterByEntropyResult(
-            select_atoms=select_atoms_path,
-            entroy=result
-        )
+        result={
+            "status":"success",
+            "message":"Filter by entropy completed.",
+            "selected_atoms": str(select_atoms_path.resolve()),
+            "entropy": select_result
+        }
+        
     except Exception as e:
         logging.error(f"Error in filter_by_entropy: {str(e)}")
-        return FilterByEntropyResult(
-            select_atoms=Path(""),
-            entroy={}
-        )
-
+        
+        result={
+            "status":"error",
+            "message":f"Filter by entropy failed: {str(e)}",
+            "selected_atoms": "",
+            "entropy": {}
+        }
+        
+    return result

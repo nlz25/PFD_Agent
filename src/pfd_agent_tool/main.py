@@ -4,9 +4,12 @@ import os
 import argparse
 from typing import List
 from importlib.metadata import version
+import traceback
 __version__ = version("abacusagent")
 
-AVAILABLE_MODULES = ["db", "expl", "dft", "train"]
+AVAILABLE_MODULES = [
+    #"db", 
+    "expl", "dft", "train","log"]
 
 
 def load_tools(screen_modules: List[str] = []):
@@ -26,6 +29,7 @@ def load_tools(screen_modules: List[str] = []):
             module = importlib.import_module(module_name)
             print(f"✅ Successfully loaded: {module_name}")
         except Exception as e:
+            traceback.print_exc()
             print(f"⚠️ Failed to load {module_name}: {str(e)}")
 
 

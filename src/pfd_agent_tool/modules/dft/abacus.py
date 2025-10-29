@@ -8,6 +8,7 @@ from abacustest.lib_prepare.abacus import AbacusStru, ReadInput, WriteInput
 from pfd_agent_tool.modules.util.common import generate_work_path
 from pfd_agent_tool.init_mcp import mcp
 from pfd_agent_tool.modules.util.ase2xyz import dpdata2ase_single
+from pfd_agent_tool.modules.log.log import log_step
 import dpdata
 import numpy as np
 from ._abacus import link_abacusjob, run_abacus, collect_metrics
@@ -15,7 +16,9 @@ from ._abacus import link_abacusjob, run_abacus, collect_metrics
 import logging
 import traceback
 
+
 @mcp.tool()
+@log_step(step_name="labeling_abacus_scf_preparation")
 def abacus_prepare(
     structure_path: Path,
     job_type: Literal["scf", "relax", "cell-relax", "md"] = "scf",
@@ -55,7 +58,7 @@ def abacus_prepare(
                 For example, {"Fe": ["d", 4], "O": ["p", 1]} means applying DFT+U to Fe 3d orbital with U=4 eV and O 2p orbital with U=1 eV.
         init_mag ( dict or None): The initial magnetic moment for magnetic elements, should be a dict like {"Fe": 4, "Ti": 1}, where the key is the element symbol and the value is the initial magnetic moment.
         afm (bool): Whether to use antiferromagnetic calculation, default is False. If True, half of the magnetic elements will be set to negative initial magnetic moment.
-        extra_input: Extra input parameters in the prepared INPUT file. 
+        extra_input: Extra input parameters in the prepared INPUT file. Do not include any extra input otherwise being explicitly specified.
     
     Returns:
         A dictionary containing the list of job paths.
@@ -139,14 +142,17 @@ def abacus_prepare(
             raise RuntimeError("No job path returned from PrepInput.")
 
         input_content_ls = [ReadInput(os.path.join(abacus_inputs_dir, "INPUT")) for abacus_inputs_dir in abacus_inputs_dir_ls]
-        abacus_inputs_dir_ls = [Path(abacus_inputs_dir).resolve() for abacus_inputs_dir in abacus_inputs_dir_ls]
+        abacus_inputs_dir_ls = [str(Path(abacus_inputs_dir).resolve()) for abacus_inputs_dir in abacus_inputs_dir_ls]
         os.chdir(pwd)
-        return {"abacus_inputs_dir_list": abacus_inputs_dir_ls,
-                "input_content_list": input_content_ls}
+        return {
+            "status": "success",
+            "abacus_inputs_dir_list": abacus_inputs_dir_ls,
+            "input_content_list": input_content_ls}
     except Exception as e:
-        
-        return {"message": f"Batch prepare failed: {e}",
-                "traceback": traceback.format_exc(),}
+        return {
+            "status": "error",
+            "message": f"Batch prepare failed: {e}",
+            "traceback": traceback.format_exc(),}
 
 
 @mcp.tool()
@@ -419,6 +425,7 @@ def abacus_modify_stru(
 
 
 @mcp.tool()
+@log_step(step_name="labeling_abacus_scf_calculation")
 def abacus_calculation_scf(
     abacus_inputs_dir_ls: Union[List[Path], Path],
 ) -> Dict[str, Any]:
@@ -457,7 +464,9 @@ def abacus_calculation_scf(
         # running abacus calculation
         run_abacus(work_path_ls)
 
-        return_dict = {'scf_work_dir_list': [Path(work_path).absolute() for work_path in work_path_ls],}
+        return_dict = {
+            'status': 'success',
+            'scf_work_dir_list': [str(Path(work_path).expanduser().resolve()) for work_path in work_path_ls]}
         
         return_dict.update(
             {'scf_work_metrics_list':[collect_metrics(work_path,
@@ -466,11 +475,14 @@ def abacus_calculation_scf(
 
         return return_dict
     except Exception as e:
-        return {"message": f"Performing SCF calculation failed: {e}",
-                "traceback": traceback.format_exc()}
+        return {
+            "status": "error",
+            "message": f"Performing SCF calculation failed: {e}",
+            "traceback": traceback.format_exc()}
                 
     
 @mcp.tool()
+@log_step(step_name="labeling_abacus_scf_collect_results")
 def collect_abacus_scf_results(
     scf_work_dir_ls: Union[List[Path], Path],
 ) -> Dict[str, Any]:
@@ -494,6 +506,12 @@ def collect_abacus_scf_results(
         work_path.mkdir(parents=True, exist_ok=True)
         scf_result = work_path / "scf_result.extxyz"
         write(scf_result, atoms_ls, format="extxyz")
-        return {"scf_result": scf_result}
+        return {
+            "status": "success",
+            "scf_result": str(scf_result.resolve())
+            }
     except Exception as e:
-        return {"message": f"Collecting SCF results failed: {e}","traceback": traceback.format_exc()}
+        return {
+            "status": "error",
+            "message": f"Collecting SCF results failed: {e}",
+            "traceback": traceback.format_exc()}

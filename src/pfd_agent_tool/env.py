@@ -24,7 +24,7 @@ ENVS = {
     "BOHRIUM_PROJECT_ID": "",
     
     # -------------------- General settings--------------------------
-    "BASE_MODEL_PATH": "/path/to/your/model",  # The path to the base model, e.g., /path/to/your/model
+    "DPA_MODEL_PATH": "/path/to/your/model",  # The path to the base model, e.g., /path/to/your/model
     
     # ------------------- Database settings --------------------------
     "ASE_DB_PATH": "",  # The path to the ASE database file, e.g., /path/to/ase.db

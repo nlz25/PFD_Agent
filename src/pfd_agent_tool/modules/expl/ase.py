@@ -23,9 +23,8 @@ from ase import units
 from .calculator import CalculatorWrapper
 from pfd_agent_tool.init_mcp import mcp
 from pfd_agent_tool.modules.util.common import generate_work_path
-
+from pfd_agent_tool.modules.log.log import log_step
 import logging
-
 
 class OptimizationResult(TypedDict):
     """Result structure for structure optimization"""
@@ -47,8 +46,7 @@ def list_calculators() -> List[Dict[str, Any]]:
         - name: calculator key to use as model_style
         - description: short summary (aligned to wrapper implementation)
         - requires_model_path: whether `model_path` must be provided
-        - required_init_params: required kwargs for wrapper.create(...)
-        - optional_init_params: commonly used optional kwargs for wrapper.create(...)
+        - optional_calc_args: optional kwargs for calculator initialization
         - md_supported: whether suitable for MD in this toolkit
         - notes: extra hints
         - example: minimal example for run_molecular_dynamics
@@ -58,53 +56,24 @@ def list_calculators() -> List[Dict[str, Any]]:
         "dpa": {
             "description": "DeepMD (deepmd-kit) ASE calculator wrapper.",
             "requires_model_path": True,
-            "required_init_params": ["model_path"],
-            "optional_init_params": ["head"],
+            "optional_calc_args": ["head"],
             "md_supported": True,
-            "notes": "Use a DeepMD model file path (.pb). Additional DP kwargs may be passed if supported by deepmd-kit.",
+            "notes": "Always specify `head` for multi-head models to select the desired potential. Default to `MP_traj_v024_alldata_mixu` if not specified.",
             "example": "run_molecular_dynamics(initial_structure=Path('in.xyz'), stages=stages, model_style='dpa', model_path=Path('.tests/dpa/DPA2_medium_28_10M_rc0.pt'),head='MP_traj_v024_alldata_mixu')",
-        },
-        "mattersim": {
-            "description": "MatterSim force field calculator wrapper.",
-            "requires_model_path": True,
-            "required_init_params": ["model_path"],  # from_checkpoint(load_path=model_path)
-            "optional_init_params": [],
-            "md_supported": True,
-            "notes": "Requires mattersim installed. Uses MatterSimCalculator.from_checkpoint(load_path=...).",
-            "example": "run_molecular_dynamics(initial_structure=Path('protein.pdb'), stages=stages, model_style='mattersim', model_path=Path('mattersim.ckpt'))",
-        },
-        "mace": {
-            "description": "MACE ASE calculator wrapper.",
-            "requires_model_path": True,
-            "required_init_params": ["model_path"],  # passed to MACECalculator(model_paths=...)
-            "optional_init_params": [],
-            "md_supported": True,
-            "notes": "Provide a trained MACE model path; forwarded as model_paths.",
-            "example": "run_molecular_dynamics(initial_structure=Path('in.xyz'), stages=stages, model_style='mace', model_path=Path('mace.model'))",
         },
         "emt": {
             "description": "EMT toy calculator (no model file).",
             "requires_model_path": False,
-            "required_init_params": [],
-            "optional_init_params": [],
+            "optional_calc_args": [],
             "md_supported": True,
             "notes": "Good for smoke tests; no model_path needed.",
             "example": "run_molecular_dynamics(initial_structure=Path('in.xyz'), stages=stages, model_style='emt')",
-        },
-        "lj": {
-            "description": "Lennard-Jones calculator (ASE).",
-            "requires_model_path": False,
-            "required_init_params": [],
-            "optional_init_params": ["epsilon", "sigma", "rc", "ro"],
-            "md_supported": True,
-            "notes": "Parameters map to ase.calculators.lj.LennardJones.",
-            "example": "run_molecular_dynamics(initial_structure=Path('in.xyz'), stages=stages, model_style='lj', epsilon=0.0103, sigma=3.4)",
-        },
+        }
     }
 
-    available = CalculatorWrapper.get_all_calculator()
-    result: List[Dict[str, Any]] = []
-    for name in available:
+    #available = CalculatorWrapper.get_all_calculator()
+    result: List[Dict[Any]] = []
+    for name in specs.keys():
         spec = specs.get(name, {})
         result.append({
             "name": name,
@@ -117,6 +86,92 @@ def list_calculators() -> List[Dict[str, Any]]:
             "example": spec.get("example", ""),
         })
     return result
+
+@mcp.tool()
+def get_base_model_path(
+    model_style: str= "dpa",
+    model_path: Optional[Path]=None
+    ) -> Dict[str,Any]:
+    """Resolve a usable base model path before using `run_molecular_dynamics` tool.
+
+    Behavior:
+    1) Prefer the explicitly provided `model_path` if given.
+    2) Otherwise, read from environment variable `BASE_MODEL_PATH`.
+    3) Normalize local paths (expanduser + resolve). If a directory is provided,
+       try to find a model file inside with common suffixes (.pt, .pth, .pb).
+    4) If an HTTP(S) URL is provided, return it as-is.
+
+    Returns: A dictionary contains:
+        - base_model_path: normalized local Path or an HTTP(S) URI string (framework will serialize Paths),
+        or None if nothing can be determined.
+    """
+
+    def _is_url(s: str) -> bool:
+        return s.startswith("http://") or s.startswith("https://")
+
+    def _as_path_or_str(p: Optional[Path | str]) -> Optional[Path | str]:
+        if p is None:
+            return None
+        # Accept strings (including URLs) or Path-like
+        if isinstance(p, Path):
+            return p
+        if isinstance(p, str) and _is_url(p):
+            return p  # return URL as-is
+        # Otherwise, treat as filesystem path
+        try:
+            return Path(p).expanduser().resolve()
+        except Exception:
+            return Path(p)
+
+    def _pick_model_in_dir(d: Path) -> Optional[Path]:
+        if not d.is_dir():
+            return None
+        # Preference order
+        candidates = []
+        for suf in ("*.pt", "*.pth", "*.pb"):
+            candidates.extend(sorted(d.glob(suf)))
+        return candidates[0] if candidates else None
+
+    # 1) Prefer explicit argument
+    source = model_path if model_path not in (None, "") else None
+    # 2) Else environment
+    if source is None:
+        if model_style == "dpa":
+            env_val = os.getenv("DPA_MODEL_PATH", "").strip()
+            source = env_val if env_val else None
+
+    if source is None:
+        logging.error("No model path could be determined from arguments or environment.")
+        return {"base_model_path": None}
+
+    resolved = _as_path_or_str(source)
+
+    # If URL, return as-is
+    if isinstance(resolved, str) and _is_url(resolved):
+        return {"base_model_path": resolved}  # type: ignore[return-value]
+
+    # Local path handling
+    assert isinstance(resolved, Path)
+
+    # If it's a file with a known suffix, return it
+    if resolved.suffix.lower() in {".pt", ".pth", ".pb"}:
+        return {"base_model_path": resolved}
+
+    # If it's a directory, try to pick a model file inside
+    if resolved.is_dir():
+        picked = _pick_model_in_dir(resolved)
+        if picked is not None:
+            return {"base_model_path": picked}
+        # Fall back to directory itself if no files are found
+        return {"base_model_path": resolved}
+
+    # For unknown suffixes or non-existing paths: if it looks like a file with a known model suffix
+    # in the name, just return it; otherwise return the parent as a best-effort "base" path.
+    if any(str(resolved).lower().endswith(s) for s in (".pt", ".pth", ".pb")):
+        return {"base_model_path": resolved}
+
+    
+    return {"base_model_path": resolved.parent if resolved.parent != resolved else resolved}
 
 @mcp.tool()
 def optimize_structure( 
@@ -132,8 +187,8 @@ def optimize_structure(
 
     Args:
         input_structure (Path): Path to the input structure file (e.g., CIF, POSCAR).
-        model_path (Path): Path to the trained Deep Potential model directory.
-            Default options are {'DPA2.4-7M': "https://bohrium.oss-cn-zhangjiakou.aliyuncs.com/13756/27666/store/upload/cd12300a-d3e6-4de9-9783-dd9899376cae/dpa-2.4-7M.pt", "DPA3.1-3M": "https://bohrium.oss-cn-zhangjiakou.aliyuncs.com/13756/27666/store/upload/18b8f35e-69f5-47de-92ef-af8ef2c13f54/DPA-3.1-3M.pt"}.
+        model_path (Path): Path to the model file
+            If not provided, using the `get_base_model_path` tool to obtain the default model path.
         force_tolerance (float, optional): Convergence threshold for atomic forces in eV/Å.
             Default is 0.01 eV/Å.
         max_iterations (int, optional): Maximum number of geometry optimization steps.
@@ -194,7 +249,7 @@ def optimize_structure(
             "optimized_structure": Path(output_file),
             "optimization_traj": Path(traj_file),
             "final_energy": final_energy,
-            "message": f"Successfully completed in {optimizer.nsteps} steps"
+            "message": f"Successfully completed in {optimizer.nsteps} steps",
         }
 
     except Exception as e:
@@ -203,9 +258,8 @@ def optimize_structure(
             "optimized_structure": Path(""),
             "optimization_traj": None, 
             "final_energy": -1.0,
-            "message": f"Optimization failed: {str(e)}"
+            "message": f"Optimization failed: {str(e)}",
         }
-
 
 def _log_progress(atoms, dyn):
     """Log simulation progress"""
@@ -358,6 +412,9 @@ def _run_md_pipeline(atoms, stages, save_interval_steps=100, traj_prefix='traj',
     return atoms
 
 @mcp.tool()
+@log_step(
+    step_name="explore_md"
+)
 def run_molecular_dynamics(
     initial_structure: Path,
     stages: List[Dict],
@@ -366,7 +423,7 @@ def run_molecular_dynamics(
     save_interval_steps: int = 100,
     traj_prefix: str = 'traj',
     seed: Optional[int] = 42,
-    **kwargs
+    calc_args: Optional[Dict[str,str]]=None
 ) -> Dict:
     """
     [Modified from AI4S-agent-tools/servers/DPACalculator] Run a multi-stage molecular dynamics simulation using Deep Potential. 
@@ -396,19 +453,9 @@ def run_molecular_dynamics(
         save_interval_steps (int): Interval (in MD steps) to save trajectory frames (default: 100).
         traj_prefix (str): Prefix for trajectory output files (default: 'traj').
         seed (int, optional): Random seed for initializing velocities (default: 42).
-        **kwargs: Optional calculator initialization parameters passed directly to the
-            calculator wrapper. For pretrained DPA multi-head models, include a top-level
-            argument head (e.g., head="Omat24"). All optional parameters MUST be passed
-            directly as top-level arguments to this tool. Do NOT send a nested object named
-            "kwargs".
-
-    Agent guidance (critical):
-                - When using pretrained DPA models that require a "head", pass it as a direct
-                    top-level argument (captured by **kwargs):
-                        Correct:  head="MP_traj_v024_alldata_mixu"
-                        Incorrect: kwargs={"head": "MP_traj_v024_alldata_mixu"}
-        - NEVER include a literal argument named "kwargs" in tool calls. Provide all
-          optional fields as top-level arguments (they will be forwarded to the calculator).
+        calc_args (Dict[str, str], optional): Optional calculator initialization parameters passed directly to the
+            calculator wrapper. For pretrained DPA multi-head models, an available head should be provided. 
+            The head is defaulted to "MP_traj_v024_alldata_mixu" if not specified.
 
     Returns: A dictionary containing:
             - trajectory_list (List[Path]): The paths of output trajectory files generated.
@@ -448,138 +495,58 @@ def run_molecular_dynamics(
         ...     seed=42
         ... )
     """
-
     # Create output directories
-    work_path=Path(generate_work_path())
-    work_path = work_path.expanduser().resolve()
-    work_path.mkdir(parents=True, exist_ok=True)
+    try:
+        work_path=Path(generate_work_path())
+        work_path = work_path.expanduser().resolve()
+        work_path.mkdir(parents=True, exist_ok=True)
     
-    traj_dir = work_path / "trajs_files"
-    traj_dir.mkdir(parents=True, exist_ok=True)
-    log_file = work_path / "md_simulation.log"
+        traj_dir = work_path / "trajs_files"
+        traj_dir.mkdir(parents=True, exist_ok=True)
+        log_file = work_path / "md_simulation.log"
     
-    # Read initial structure
-    atoms_ls = read(initial_structure,index=':')
+        # Read initial structure
+        atoms_ls = read(initial_structure,index=':')
     
-    # Setup calculator
-    # Flatten an accidentally nested 'kwargs' dict sent by clients; keep robust and log
-    if "kwargs" in kwargs and isinstance(kwargs["kwargs"], dict):
-        logging.warning("run_molecular_dynamics received a nested 'kwargs' object; flattening it. Do not send 'kwargs' explicitly.")
-        inner = kwargs.pop("kwargs")
-        # merge inner into kwargs, without overwriting explicitly provided top-level keys
-        for k, v in inner.items():
-            kwargs.setdefault(k, v)
-    calc=CalculatorWrapper.get_calculator(model_style)
-    calc=calc().create(model_path=model_path, **kwargs)
+        # Setup calculator
+        # Flatten an accidentally nested 'kwargs' dict sent by clients; keep robust and log
+        if calc_args is None:
+            calc_args={}
+
+        calc=CalculatorWrapper.get_calculator(model_style)
+        calc=calc().create(model_path=model_path, **calc_args)
     
-    #final_structures_ls=[]
-    for idx,atoms in enumerate(atoms_ls):
-        atoms.calc = calc
+        #final_structures_ls=[]
+        for idx,atoms in enumerate(atoms_ls):
+            atoms.calc = calc
         # Run MD pipeline
-        _ = _run_md_pipeline(
-            atoms=atoms,
-            stages=stages,
-            save_interval_steps=save_interval_steps,
-            traj_prefix=traj_prefix+("_%03d"%idx),
-            traj_dir=str(traj_dir),
-            seed=seed
-    )
+            _ = _run_md_pipeline(
+                atoms=atoms,
+                stages=stages,
+                save_interval_steps=save_interval_steps,
+                traj_prefix=traj_prefix+("_%03d"%idx),
+                traj_dir=str(traj_dir),
+                seed=seed
+            )
     
-    # Save final structure
-        #final_structure = work_path / ("final_structure_%03d.xyz"%idx)
-        #write(final_structure, final_atoms)
-        #final_structures_ls.append(final_structure)
-    
-    traj_list = sorted(
-        p.resolve()  # use resolve(strict=True) if you want to fail on broken links
-        for p in Path(traj_dir).glob("*.extxyz")
-        )
-    
-    result = {
-        #"final_structure_list": final_structures_ls,
-        "trajectory_list": traj_list,
-        "log_file": log_file
-    }
-    
+        traj_list = sorted(
+            p.resolve()  # use resolve(strict=True) if you want to fail on broken links
+            for p in Path(traj_dir).glob("*.extxyz")
+            )
+        result = {
+            "status": "success",
+            "message": "Molecular dynamics simulation completed successfully.",
+            "trajectory_list": traj_list,
+            "log_file": log_file,
+        }
+
+    except Exception as e:
+        logging.error(f"Molecular dynamics simulation failed: {str(e)}", exc_info=True)
+        result = {
+            "status": "error",
+            "message": f"Molecular dynamics simulation failed: {str(e)}",
+            "trajectory_list": [],
+            "log_file": Path(""),
+        }
     return result
 
-@mcp.tool()
-def get_base_model_path(model_path: Optional[Path]) -> Optional[Path]:
-    """Resolve a usable base model path before using `run_molecular_dynamics` tool.
-
-    Behavior:
-    1) Prefer the explicitly provided `model_path` if given.
-    2) Otherwise, read from environment variable `BASE_MODEL_PATH`.
-    3) Normalize local paths (expanduser + resolve). If a directory is provided,
-       try to find a model file inside with common suffixes (.pt, .pth, .pb).
-    4) If an HTTP(S) URL is provided, return it as-is.
-
-    Returns: A dictionary contains:
-        - base_model_path: normalized local Path or an HTTP(S) URI string (framework will serialize Paths),
-        or None if nothing can be determined.
-    """
-
-    def _is_url(s: str) -> bool:
-        return s.startswith("http://") or s.startswith("https://")
-
-    def _as_path_or_str(p: Optional[Path | str]) -> Optional[Path | str]:
-        if p is None:
-            return None
-        # Accept strings (including URLs) or Path-like
-        if isinstance(p, Path):
-            return p
-        if isinstance(p, str) and _is_url(p):
-            return p  # return URL as-is
-        # Otherwise, treat as filesystem path
-        try:
-            return Path(p).expanduser().resolve()
-        except Exception:
-            return Path(p)
-
-    def _pick_model_in_dir(d: Path) -> Optional[Path]:
-        if not d.is_dir():
-            return None
-        # Preference order
-        candidates = []
-        for suf in ("*.pt", "*.pth", "*.pb"):
-            candidates.extend(sorted(d.glob(suf)))
-        return candidates[0] if candidates else None
-
-    # 1) Prefer explicit argument
-    source = model_path if model_path not in (None, "") else None
-    # 2) Else environment
-    if source is None:
-        env_val = os.getenv("BASE_MODEL_PATH", "").strip()
-        source = env_val if env_val else None
-
-    if source is None:
-        return None
-
-    resolved = _as_path_or_str(source)
-
-    # If URL, return as-is
-    if isinstance(resolved, str) and _is_url(resolved):
-        return resolved  # type: ignore[return-value]
-
-    # Local path handling
-    assert isinstance(resolved, Path)
-
-    # If it's a file with a known suffix, return it
-    if resolved.suffix.lower() in {".pt", ".pth", ".pb"}:
-        return resolved
-
-    # If it's a directory, try to pick a model file inside
-    if resolved.is_dir():
-        picked = _pick_model_in_dir(resolved)
-        if picked is not None:
-            return picked
-        # Fall back to directory itself if no files are found
-        return resolved
-
-    # For unknown suffixes or non-existing paths: if it looks like a file with a known model suffix
-    # in the name, just return it; otherwise return the parent as a best-effort "base" path.
-    if any(str(resolved).lower().endswith(s) for s in (".pt", ".pth", ".pb")):
-        return resolved
-
-    
-    return {"base_model_path": resolved.parent if resolved.parent != resolved else resolved}
