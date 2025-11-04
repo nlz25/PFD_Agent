@@ -1,7 +1,7 @@
 [project]
-name = "pfd-agent"
-version = "0.1.0"
-description = "Add your description here"
+name = "matcreator"
+version = "0.0.1"
+description = "A multi-agent framework for complex computational material tasks."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -24,7 +24,9 @@ dependencies = [
 ]
 
 [project.scripts]
-pfd-agent = "pfd_agent_tool.main:main"
+pfd-agent = "matcreator.script.pfd_agent:main"
+database-agent = "matcreator.script.database_agent:main"
+
 
 [build-system]
 requires = ["setuptools>=65.5.0", "wheel"]
@@ -35,5 +37,5 @@ build-backend = "setuptools.build_meta"
 package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
-# Look for packages under the `src` directory
 where = ["src"]
+include = ["matcreator*"]
