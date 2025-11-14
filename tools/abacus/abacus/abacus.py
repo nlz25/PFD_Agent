@@ -6,19 +6,16 @@ from abacustest.lib_model.model_013_inputs import PrepInput
 from abacustest.lib_model.comm import check_abacus_inputs as _check_abacus_inputs
 from abacustest.lib_prepare.abacus import AbacusStru, ReadInput, WriteInput
 from matcreator.tools.util.common import generate_work_path
-from matcreator.mcp.pfd import mcp
 from matcreator.tools.util.ase2xyz import dpdata2ase_single
-from matcreator.tools.log.log import log_step
 import dpdata
 import numpy as np
-from ._abacus import link_abacusjob, run_abacus, collect_metrics
+from .common import link_abacusjob, run_abacus, collect_metrics
 #from abacusagent.modules.submodules.abacus import abacus_modify_input as _abacus_modify_input                                                 
-import logging
 import traceback
 
 
-@mcp.tool()
-@log_step(step_name="labeling_abacus_scf_preparation")
+#@mcp.tool()
+#@log_step(step_name="labeling_abacus_scf_preparation")
 def abacus_prepare(
     structure_path: Path,
     job_type: Literal["scf", "relax", "cell-relax", "md"] = "scf",
@@ -155,7 +152,7 @@ def abacus_prepare(
             "traceback": traceback.format_exc(),}
 
 
-@mcp.tool()
+#@mcp.tool()
 def check_abacus_inputs(abacus_inputs_dir_ls: Union[List[Path], Path]) -> Dict[str, Any]:
     """
     Check if the ABACUS input files are valid. Always check the afer preparing input files with abacus_prepare_batch, 
@@ -179,7 +176,7 @@ def check_abacus_inputs(abacus_inputs_dir_ls: Union[List[Path], Path]) -> Dict[s
 
 
 
-@mcp.tool()
+#@mcp.tool()
 def abacus_modify_input(
     abacus_inputs_dir_list: Union[Path,List[Path]],
     dft_plus_u_settings: Optional[Dict[str, Union[float, Tuple[Literal["p", "d", "f"], float]]]] = None,
@@ -286,7 +283,7 @@ def abacus_modify_input(
     except Exception as e:
         return {'message': f"Modify ABACUS INPUT file failed: {e}"}
 
-@mcp.tool()
+#@mcp.tool()
 def abacus_modify_stru(
     abacus_inputs_dir_ls: Union[Path, List[Path]],
     pp: Optional[Dict[str, str]] = None,
@@ -424,10 +421,10 @@ def abacus_modify_stru(
 
 
 
-@mcp.tool()
-@log_step(step_name="labeling_abacus_scf_calculation")
+#@mcp.tool()
+#@log_step(step_name="labeling_abacus_scf_calculation")
 def abacus_calculation_scf(
-    abacus_inputs_dir_ls: Union[List[Path], Path],
+    abacus_inputs_dir_ls: Union[List[str], str],
 ) -> Dict[str, Any]:
     """
     Run ABACUS SCF calculation.
@@ -439,13 +436,15 @@ def abacus_calculation_scf(
         finished normally, the SCF is converged or not, the converged SCF energy and total time used.
     """
     try:
-        if isinstance(abacus_inputs_dir_ls, Path):
+        if isinstance(abacus_inputs_dir_ls, str):
             abacus_inputs_dir_ls = [abacus_inputs_dir_ls]
             
         # base work directory
         work_path_base = Path(generate_work_path()).absolute()
         work_path_ls=[]
         for abacus_inputs_dir in abacus_inputs_dir_ls:
+            if isinstance(abacus_inputs_dir, str):
+                abacus_inputs_dir = Path(abacus_inputs_dir).resolve()
             is_valid, msg = check_abacus_inputs(abacus_inputs_dir)
             if not is_valid:
                 raise RuntimeError(f"Invalid ABACUS input files: {msg}")
@@ -481,8 +480,8 @@ def abacus_calculation_scf(
             "traceback": traceback.format_exc()}
                 
     
-@mcp.tool()
-@log_step(step_name="labeling_abacus_scf_collect_results")
+#@mcp.tool()
+#@log_step(step_name="labeling_abacus_scf_collect_results")
 def collect_abacus_scf_results(
     scf_work_dir_ls: Union[List[Path], Path],
 ) -> Dict[str, Any]:

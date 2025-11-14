@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, TypedDict, Union, Tuple, Callable
 from ase.db import connect
 from ase.io import write,read
-from matcreator.mcp.database import mcp
 
 from matcreator.tools.util.common import generate_work_path
 
@@ -33,7 +32,7 @@ class QueryResult(TypedDict):
     formulas: List[str]
     results: List[Dict[str, Any]]
 
-@mcp.tool()
+#@mcp.tool()
 def read_user_structure(
     structures: Union[List[Path], Path],
 ):
@@ -96,7 +95,7 @@ def read_user_structure(
 
 
 
-@mcp.tool()
+#@mcp.tool()
 def query_compounds(
     selection: Union[dict,int,str,List[Union[str,Tuple]]]=None,
     exclusive_elements: Union[str, List[str]] = None,
@@ -220,7 +219,7 @@ class ExportResult(TypedDict):
     metadata_file: Path
     counts: Dict[str, int]
 
-@mcp.tool()
+#@mcp.tool()
 def export_entries(
     ids: List[int],
     *,

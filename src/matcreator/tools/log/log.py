@@ -15,7 +15,6 @@ from typing import Optional, Literal, Dict, Any, Iterable, Callable
 from functools import wraps
 import asyncio
 from matcreator.constants import TASK_INSTRUCTIONS
-from matcreator.mcp.pfd import mcp
 # Default filename used to derive the timestamped target when creating logs.
 LOG_PATH = "workflow_log.json"
 # Environment variable name holding the active workflow log path.
@@ -75,7 +74,7 @@ def _save_log(data: Dict[str, Any], path: Optional[str] = None) -> str:
     return str(p)
 
 
-@mcp.tool()
+#@mcp.tool()
 def create_workflow_log(
     workflow_name: Literal["pfd_finetune","pfd_distillation"],
     additional_info: Optional[Dict[str,Any]] = None,
@@ -107,7 +106,7 @@ def create_workflow_log(
         "env": {ENV_LOG_PATH: saved_path},
     }
 
-@mcp.tool()
+#@mcp.tool()
 def update_workflow_log_plan(
     planning_details: str="No details provided."    
 ):
@@ -131,7 +130,7 @@ def update_workflow_log_plan(
         "planning_details": planning_details
     }
 
-@mcp.tool()
+#@mcp.tool()
 def resubmit_workflow_log(
     log_path:str,
 ):
@@ -207,7 +206,7 @@ def update_workflow_log(
         "message": f"Added new step '{step_name}'. Successfully saved log to {saved_path}."
     }
 
-@mcp.tool()
+#@mcp.tool()
 def read_workflow_log(
     log_path: Optional[str] = None,
     last_n: int = 10,
@@ -288,13 +287,7 @@ def log_step(
     include_output_keys: Optional[Iterable[str]] = None,
 ) -> Callable:
     """
-    Log a workflow step using update_workflow_log (env-backed LOG_PATH).
-
-    Behavior:
-    - Always logs 'running' before execution.
-    - If catch_exceptions is False: lets exceptions propagate (no failure log here).
-    - If catch_exceptions is True: logs 'failed' and re-raises.
-    - On success: logs 'completed' with selected outputs.
+    Decorator mode: log a workflow step using update_workflow_log (env-backed LOG_PATH).
 
     Use include_*_keys to limit logged fields.
     """
@@ -307,10 +300,9 @@ def log_step(
             result = fn(*args, **kwargs)
             output_payload = _to_json_safe(result)
             output_payload = _select(_to_json_safe(output_payload), include_output_keys)
-            status= output_payload.pop("status", "completed") if isinstance(output_payload, dict) else "completed"
+            status = output_payload.pop("status", "completed") if isinstance(output_payload, dict) else "completed"
             update_workflow_log(step_name=name, status=status, input=input_payload, output=output_payload)
             return result
-
 
         @wraps(fn)
         async def _async_wrapper(*args, **kwargs):
@@ -318,3 +310,41 @@ def log_step(
 
         return _async_wrapper if asyncio.iscoroutinefunction(fn) else _wrapper
     return decorator
+
+
+def after_tool_log_callback(tool, args, tool_context, tool_response,
+                            *, include_input_keys: Optional[Iterable[str]] = None,
+                            include_output_keys: Optional[Iterable[str]] = None,
+                            step_name_map: Optional[Dict[str, str]] = None):
+    """
+    Agent-level after_tool_callback to append entries to the workflow log.
+
+    Intended use:
+        from matcreator.tools.log.log import after_tool_log_callback
+        abacus_agent = LlmAgent(..., after_tool_callback=after_tool_log_callback)
+
+    Behavior:
+    - Derives step_name from tool.name (or step_name_map override).
+    - Logs status from tool_response['status'] if present, else 'completed'.
+    - Serializes args/tool_response to JSON-safe payloads; can restrict fields via include_*_keys.
+    - Returns the original tool_response unmodified.
+    """
+    try:
+        name = (step_name_map or {}).get(getattr(tool, 'name', ''), getattr(tool, 'name', 'tool'))
+        input_payload = _select(_to_json_safe(args if isinstance(args, dict) else {}), include_input_keys)
+        output_payload = _to_json_safe(tool_response)['structuredContent']['result']
+        if isinstance(output_payload, dict):
+            status = output_payload.pop('status', 'completed')
+        else:
+            status = 'completed'
+        output_payload = _select(_to_json_safe(output_payload), include_output_keys)
+        update_workflow_log(step_name=name, status=status, input=input_payload, output=output_payload)
+    except Exception as exc:
+        # Logging must never break tool execution; swallow errors but include minimal context
+        try:
+            update_workflow_log(step_name='after_tool_log_error', status='failed',
+                                input={'tool': getattr(tool, 'name', 'tool')},
+                                output={'message': str(exc)})
+        except Exception:
+            pass
+    return tool_response

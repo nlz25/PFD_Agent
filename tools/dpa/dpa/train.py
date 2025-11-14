@@ -9,125 +9,11 @@ from typing import (
     Union,
     Any
 )
-from abc import ABC, abstractmethod
-from matcreator.mcp.pfd import mcp
 from matcreator.tools.util.common import generate_work_path
-from matcreator.tools.log.log import log_step
+from .dp import DPTrain
 import os
 from ase.io import read, write
 from jsonschema import validate, ValidationError
-
-class Train(ABC):
-    """Abstract base class encapsulating a training pipeline.
-
-    Subclasses must implement the lifecycle hooks to:
-      1. prepare()  -> validate inputs, set up working dirs
-      2. run()      -> execute the actual training loop / external command
-      3. finalize() -> collect artifacts & metrics and return TrainingResult
-
-    The template method execute() wires these steps together and handles
-    logging + basic error capture.
-    """
-
-    __ModelTypes: Dict[str, Any] = {}
-    
-    def __init__(self, config: Dict[str, Any], train_data: Union[List[Path], Path], command: Optional[Dict[str, Any]] = None,
-                 model_path: Optional[Path] = None, valid_data: Optional[Union[List[Path], Path]] = None,
-                 test_data: Optional[Union[List[Path], Path]] = None,
-                 optional_files: Optional[Union[List[Path], Path]] = None
-                 ) -> None:
-        self.config = config
-        self.train_data = train_data
-        self.valid_data = valid_data
-        self.test_data = test_data
-        self.model_path = model_path
-        self.command = command or {}
-        self.optional_files = optional_files
-        self.workdir = Path(self.config.get("workdir", "./train_workspace")).absolute()
-        self.artifacts: Dict[str, Path] = {}
-        self.metrics: Dict[str, Any] = {}
-
-    @classmethod
-    @abstractmethod
-    def training_meta(cls) -> Dict[str, Any]:
-        """Return metadata about the training process."""
-        raise NotImplementedError
-
-
-    # ---- Required hooks -------------------------------------------------
-
-    @abstractmethod
-    def run(self) -> None:
-        """Run the core training / optimization procedure.
-        Should populate self.metrics and any intermediate artifacts.
-        """
-        raise NotImplementedError
-
-
-    @abstractmethod
-    def test(self) -> None:
-        """Run evaluation on the test dataset if provided.
-        Should populate self.metrics with test results.
-        """
-        raise NotImplementedError
-
-    # ---- Optional overridable hooks ------------------------------------
-    def validate(self) -> None:
-        """Lightweight validation of high-level arguments."""
-        if not self.train_data:
-            raise ValueError("train_data is required")
-
-    def setup_logging(self) -> None:
-        self.workdir.mkdir(parents=True, exist_ok=True)
-        logging.info(f"[RunTrain] Workdir: {self.workdir}")
-
-
-    @staticmethod
-    def register(key: str):
-        """Register a model type. Used as decorators
-
-        Args:
-            key (str): key of the model
-        """
-
-        def decorator(object):
-            Train.__ModelTypes[key] = object
-            return object
-
-        return decorator
-
-    @staticmethod
-    def get_driver(key: str):
-        """Get a driver for ModelEval
-
-        Args:
-            key (str): _description_
-
-        Raises:
-            RuntimeError: _description_
-
-        Returns:
-            _type_: _description_
-        """
-        try:
-            return Train.__ModelTypes[key]
-        except KeyError as e:
-            raise RuntimeError("unknown driver: " + key) from e
-
-    @staticmethod
-    def get_drivers() -> dict:
-        """Get all drivers
-
-        Returns:
-            dict: all drivers
-        """
-        return Train.__ModelTypes
-
-
-@mcp.tool()
-def list_training_strategies() -> List[str]:
-    """List available training strategies."""
-    return list(Train.get_drivers().keys())
 
 
 class TrainInputDocResult(TypedDict):
@@ -137,18 +23,17 @@ class TrainInputDocResult(TypedDict):
     config: str
     command: str
 
-@mcp.tool()
-def train_input_doc(strategy: str) -> Dict[str, Any]:
+#@mcp.tool()
+def train_input_doc() -> Dict[str, Any]:
     """
     Returns:
         List available training strategies and their metadata. 
         You can use these information to formulate template config and command dict.
     """
     try:
-        model_cls = Train.get_driver(strategy)
-        training_meta = model_cls.training_meta()
+        training_meta = DPTrain.training_meta()
         return TrainInputDocResult(
-            name=strategy,
+            name="Deep Potential model",
             description=str(training_meta.get("description", "")),
             config=str(training_meta.get("config", {}).get("doc", "")),
             command=str(training_meta.get("command", {}).get("doc", "")),
@@ -173,7 +58,7 @@ class CheckTrainDataResult(TypedDict):
     num_valid_frames: int
     num_test_frames: int
     
-@mcp.tool()
+#@mcp.tool()
 def check_train_data(
     train_data: Path,
     valid_ratio: Optional[float] = 0.0,
@@ -298,24 +183,22 @@ class CheckInputResult(TypedDict):
     message: str
     command: Dict[str, Any]
     config: Dict[str, Any]
-@mcp.tool()
+#@mcp.tool()
 def check_input(
     config: Dict[str, Any], #= load_json_file(CONFIG_PATH),
     command: Optional[Dict[str, Any]] = {},#load_json_file(COMMAND_PATH),
-    strategy: str = "dpa",
 ) -> CheckInputResult:
     """You should validate the `config` and `command` input based on the selected strategy.
-    You need to ensure that all required fields are present and correctly formatted.
-    If any required field is missing or incorrectly formatted, return a message indicating the issue.
-    Make sure to pass this validation step before proceeding to training.
+        You need to ensure that all required fields are present and correctly formatted.
+        If any required field is missing or incorrectly formatted, return a message indicating the issue.
+        Make sure to pass this validation step before proceeding to training.
     """
     try:
-        strategy_cls = Train.get_driver(strategy)
-        training_meta = strategy_cls.training_meta()
+        training_meta = DPTrain.training_meta()
         validate(config, training_meta["config"]["schema"])
-        config=strategy_cls.normalize_config(config)
+        config=DPTrain.normalize_config(config)
         validate(command, training_meta["command"]["schema"])
-        command=strategy_cls.normalize_command(command)
+        command=DPTrain.normalize_command(command)
         return CheckInputResult(
             valid=True,
             message="Config is valid",
@@ -337,8 +220,7 @@ class TrainingResult(TypedDict):
     log: Path
     message: str
     test_metrics: Optional[List[Dict[str, Any]]]
-@mcp.tool()
-@log_step(step_name="training")
+
 def training(
     config: Dict[str, Any], #= load_json_file(CONFIG_PATH),
     train_data: Path,# = Path(TRAIN_DATA_PATH),
@@ -346,19 +228,19 @@ def training(
     command: Optional[Dict[str, Any]] = {},#load_json_file(COMMAND_PATH),
     valid_data: Optional[Union[List[Path], Path]] = None,
     test_data: Optional[Union[List[Path], Path]] = None,
-    strategy: str = "dpa",
 ) -> TrainingResult:
-    """Train a selected machine learning force field model via a chosen strategy. This tool should only be executed once all necessary inputs are gathered and validated.
+    """Train a Deep Potential (DP) machine learning force field model. This tool should only be executed once all necessary inputs are gathered and validated.
+       Always use 'train_input_doc' to get the template for 'config' and 'command', and use 'check_input' to validate them before calling this tool.
     
     Args:
-        config: Configuration parameters for training (You can find an example for `config` from the 'list_and_describe_training_strategy' tool').
-        command: Command parameters for training (You can find an example for `command` from the 'list_and_describe_training_strategy' tool').
+        config: Configuration parameters for training (You can find an example for `config` from the 'train_input_doc' tool').
+        command: Command parameters for training (You can find an example for `command` from the 'train_input_doc' tool').
         train_data: Path to the training dataset (required).
+        model_path (Path, optional): Path to pre-trained base model. Required for model fine-tuning.
     
     """
     try:
-        cls = Train.get_driver(strategy)
-        runner = cls(config=config, train_data=train_data, command=command, model_path=model_path,
+        runner = DPTrain(config=config, train_data=train_data, command=command, model_path=model_path,
                  valid_data=valid_data, test_data=test_data)
         runner.validate()
         work_path=Path(generate_work_path()).absolute()

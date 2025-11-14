@@ -7,7 +7,6 @@ requires-python = ">=3.12"
 dependencies = [
     "ase>=3.26.0",
     "dargs>=0.4.10",
-    #"deepmd-kit==3.1.0",
     "dpdata>=0.2.25",
     "fastmcp>=2.12.3",
     "google-adk>=1.1.1",
@@ -15,12 +14,9 @@ dependencies = [
     "litellm>=1.77.4",
     "numpy==1.26.4",
     "periodictable>=2.0.2",
-    "pydflow>=1.8.132",
     "pyyaml>=6.0.2",
     "science-agent-sdk>=0.1.8",
     "scipy>=1.16.2",
-    #"tensorflow>=2.18.1",
-    #"torch>=2.8.0",
 ]
 
 [project.scripts]

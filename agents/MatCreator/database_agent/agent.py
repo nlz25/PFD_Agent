@@ -18,11 +18,6 @@ model_name = env.get("LLM_MODEL", os.environ.get("LLM_MODEL", ""))
 model_api_key = env.get("LLM_API_KEY", os.environ.get("LLM_API_KEY", ""))
 model_base_url = env.get("LLM_BASE_URL", os.environ.get("LLM_BASE_URL", ""))
 
-# Database MCP server connection
-db_host = env.get("DATABASE_AGENT_HOST", os.environ.get("DATABASE_AGENT_HOST", "localhost"))
-db_port = str(env.get("DATABASE_AGENT_PORT", os.environ.get("DATABASE_AGENT_PORT", "50002")))
-sse_url = f"http://{db_host}:{db_port}/sse"
-
 description = """
 You are the Database Agent for materials datasets. You help users inspect, query, and export
 structures from an ASE database quickly and safely.

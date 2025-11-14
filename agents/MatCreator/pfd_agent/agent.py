@@ -3,6 +3,13 @@ from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.mcp_tool import MCPToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
 from google.adk.tools import agent_tool
+from matcreator.tools.log import (
+    create_workflow_log,
+    update_workflow_log_plan,
+    read_workflow_log,
+    resubmit_workflow_log,
+    after_tool_log_callback
+    )
 #from .abacus_agent.agent import abacus_agent
 from ..abacus_agent.agent import abacus_agent
 from ..dpa_agent.agent import dpa_agent
@@ -19,9 +26,6 @@ else:
 model_name = env.get("LLM_MODEL", os.environ.get("LLM_MODEL", ""))
 model_api_key = env.get("LLM_API_KEY", os.environ.get("LLM_API_KEY", ""))
 model_base_url = env.get("LLM_BASE_URL", os.environ.get("LLM_BASE_URL", ""))
-bohrium_username = env.get("BOHRIUM_USERNAME", os.environ.get("BOHRIUM_USERNAME", ""))
-bohrium_password = env.get("BOHRIUM_PASSWORD", os.environ.get("BOHRIUM_PASSWORD", ""))
-bohrium_project_id = env.get("BOHRIUM_PROJECT_ID", os.environ.get("BOHRIUM_PROJECT_ID", ""))
 
 description="""
 The main coordinator agent for PFD (pretrain-finetuning-distillation) workflow. Handles PFD workflow and delegates DPA/ABACUS tasks to specialized sub-agents.
@@ -32,17 +36,20 @@ Mission
 - Orchestrate the standard PFD workflow with minimal, safe steps and clear outputs:
     MD exploration → data curation (entropy selection) → DFT labeling (ABACUS) → model training (DPA).
 
-Before detailed planning (must verify with user)
+Before any actually calculation, you must verify with user the following critical parameters:
 - MD: ensemble (NVT/NPT/NVE), temperature(s), total simulation time (ps), timestep/expected steps.
 - Curation: max_sel (and chunk_size if applicable).
 - Training: target epochs (or equivalent); propose a short validation run if long.
 
 You have two specialized sub‑agents: 
-1. 'dpa_agent_pfd': Handles molecular dynamic (MD) simulation with DPA model and training of DPA model. Delegate to it for these.
+1. 'dpa_agent_pfd': Handles MD simulation and TRAINING with DPA model. Delegate to it for these.
 2. 'abacus_agent_pfd': Handles DFT calculations using ABACUS software. Delegate to it for these.
 
+Never invent tools
+- Only call tools from the allowlist above. Do not fabricate tool or agent names.
+
 Workflow rules
-- Create a workflow log for NEW PFD runs; show the initial plan; refine via update_workflow_log_plan until agreed. Read the log before delegating to sub-agent steps.
+- Create a workflow log for NEW PFD runs; show the initial plan; refine via update_workflow_log_plan until agreed. Read the log before delegating to sub-agents.
 - In each step, either delegate to one sub-agent or execute a tool in this agent; do not mix.
 - After each step, summarize artifacts with absolute paths and key metrics; propose the next step.
 
@@ -57,71 +64,47 @@ Response format (strict)
 - Next: the immediate next step or a final recap with follow‑ups.
 """
 
-executor = {
-    "bohr": {
-        "type": "dispatcher",
-        "machine": {
-            "batch_type": "Bohrium",
-            "context_type": "Bohrium",
-            "remote_profile": {
-                "email": bohrium_username,
-                "password": bohrium_password,
-                "program_id": bohrium_project_id,
-                "input_data": {
-                    "image_name": "registry.dp.tech/dptech/dp/native/prod-22618/abacus-agent-tools:v0.2",
-                    "job_type": "container",
-                    "platform": "ali",
-                    "scass_type": "c32_m64_cpu",
-                },
-            },
-        }
-    },
-    "local": {"type": "local",}
-}
 
-EXECUTOR_MAP = {
-    "generate_bulk_structure": executor["local"],
-    "generate_molecule_structure": executor["local"],
-    "abacus_prepare": executor["local"],
-    "abacus_modify_input": executor["local"],
-    "abacus_modify_stru": executor["local"],
-    "abacus_collect_data": executor["local"],
-    "abacus_prepare_inputs_from_relax_results": executor["local"],
-    "generate_bulk_structure_from_wyckoff_position": executor["local"],
-}
-
-STORAGE = {
-    "type": "https",
-    "plugin":{
-        "type": "bohrium",
-        "username": bohrium_username,
-        "password": bohrium_password,
-        "project_id": bohrium_project_id,
-    }
-}
-
-toolset = MCPToolset(
+# entropy filter toolset
+selector_toolset = MCPToolset(
     connection_params=SseServerParams(
-        url="http://localhost:50001/sse", # Or any other MCP server URL
+        url="http://localhost:50004/sse", # Or any other MCP server URL
         sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds
     ),
     tool_filter=[
-        "create_workflow_log",
-        "update_workflow_log_plan",
-        "read_workflow_log",
-        "resubmit_workflow_log",
         "filter_by_entropy",
     ],
 )
 
+allowed = {"abacus_prepare", "abacus_calculation_scf", "collect_abacus_scf_results",
+           "training","run_molecular_dynamics","filter_by_entropy"}
+name_map={
+    "abacus_prepare":"labeling_abacus_scf_preparation",
+    "abacus_calculation_scf":"labeling_abacus_scf_calculation",  
+    "collect_abacus_scf_results":"labeling_abacus_scf_collect_results",
+    "run_molecular_dynamics":"exploration_md",
+    "filter_by_entropy":"explore_filter_by_entropy"
+}
+
+def after_tool_callback(tool,args,tool_context,tool_response):
+    if getattr(tool, 'name', None) in allowed:
+        return after_tool_log_callback(
+            tool, args, tool_context, tool_response,step_name_map=name_map
+        )
+
+
 abacus_agent= abacus_agent.clone(
     update={
         "name": "abacus_agent_pfd",
+        "after_tool_callback": after_tool_callback
         },
 )
 
 dpa_agent= dpa_agent.clone(
-    update={"name": "dpa_agent_pfd"},
+    update={
+        "name": "dpa_agent_pfd",
+        "after_tool_callback": after_tool_callback
+        },
 )
 
 pfd_agent = LlmAgent(
@@ -134,11 +117,13 @@ pfd_agent = LlmAgent(
     description=description,
     instruction=instruction,
     tools=[
-        toolset,
-        #abacus_tools,
-        #dpa_tools,
-        #structure_tools
+        selector_toolset,
+        create_workflow_log,
+        update_workflow_log_plan,
+        read_workflow_log,
+        resubmit_workflow_log,
         ],
+    after_tool_callback=after_tool_callback,
     sub_agents=[
         abacus_agent,
         dpa_agent,

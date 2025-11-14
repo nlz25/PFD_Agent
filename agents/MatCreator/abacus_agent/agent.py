@@ -4,6 +4,7 @@ from google.adk.tools.mcp_tool import MCPToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
 from google.genai import types
 import os, json
+from matcreator.tools.log import after_tool_log_callback
 
 # Set the secret key in ~/.abacusagent/env.json or as an environment variable, or modify the code to set it directly.
 env_file = os.path.expanduser("~/.pfd_agent/env.json")
@@ -26,7 +27,7 @@ instruction ="""
 Operate ABACUS safely with minimal steps and strict validation.
 
 Must‑follow sequence
-- abacus_prepare first to create an inputs directory (INPUT, STRU, pseudopotentials, orbitals).
+- abacus_prepare first to create an inputs directory (INPUT, STRU, pseudopotentials, orbitals). Prefer plane‑wave basis unless user requests otherwise.
 - check_abacus_input to validate inputs BEFORE any calculation submission.
 - Then run exactly ONE property tool per step (submission is asynchronous).
 - collect_abacus_*_results AFTER the corresponding calculation completes.
@@ -104,17 +105,12 @@ toolset = MCPToolset(
         "abacus_modify_stru",
         "abacus_calculation_scf",
         "collect_abacus_scf_results"
-    ]
+    ],
     #executor_map = EXECUTOR_MAP,
     #executor=executor["bohr"],
     #storage=STORAGE,
 )
 
-def after_tool_callback(tool,args,tool_context,tool_response):
-    print(f"After-tool callback for {tool.name}, args={args}")
-    # Example: augment the response
-    tool_response['meta'] = 'processed by minimalist after_tool_callback'
-    return tool_response
 
 def after_agent_cb2(callback_context):
   print('@after_agent_cb2')

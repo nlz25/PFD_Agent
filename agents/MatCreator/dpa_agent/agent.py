@@ -157,7 +157,7 @@ def list_calculators() -> List[Dict[str, Any]]:
 # tools hosted by MCP server
 toolset = MCPToolset(
     connection_params=SseServerParams(
-        url="http://localhost:50001/sse", # Or any other MCP server URL
+        url="http://localhost:50003/sse", # Or any other MCP server URL
         sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds
     ),
     tool_filter=[
@@ -171,6 +171,9 @@ toolset = MCPToolset(
         "optimize_structure",
         "get_base_model_path"
     ],
+    #executor_map = EXECUTOR_MAP,
+    #executor=executor["local"],
+    #storage=STORAGE,
 )
 
 dpa_agent = LlmAgent(

@@ -147,7 +147,7 @@ def run_abacus(job_paths: Union[str, List[str], Path, List[Path]],
         
         pwd = os.getcwd()
         
-        work_path = os.environ.get("PFD_AGENT_WORK_PATH")
+        work_path = os.environ.get("ABACUS_SERVER_WORK_PATH")
         os.makedirs(work_path, exist_ok=True)
         # create a temporary directory in work_path to submit the job
         current_time = time.strftime("%Y%m%d%H%M%S")
