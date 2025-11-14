@@ -5,7 +5,7 @@ from typing import Optional, Union, Literal, Dict, Any, List, Tuple
 from pathlib import Path
 import json
 import time
-from .dpa import (
+from dpa import (
     get_base_model_path as _get_base_model_path,
     optimize_structure as _optimize_structure,
     run_molecular_dynamics as _run_molecular_dynamics,

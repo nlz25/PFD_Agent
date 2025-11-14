@@ -4,7 +4,7 @@ import argparse
 from typing import Union, List
 import json
 import time
-from .quest import (
+from quest_tool import (
     filter_by_entropy as _filter_by_entropy,
     )
 

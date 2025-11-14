@@ -6,7 +6,7 @@ from pathlib import Path
 import json
 import time
 from mcp.server.fastmcp import FastMCP
-from .database import (
+from database import (
     read_user_structure as _read_user_structure,
     query_compounds as _query_compounds,
     export_entries as _export_entries,

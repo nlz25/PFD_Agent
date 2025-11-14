@@ -5,7 +5,7 @@ from typing import Optional, Union, Literal, Dict, Any, List, Tuple
 from pathlib import Path
 import json
 import time
-from .abacus import (
+from abacus import (
     abacus_prepare as _abacus_prepare,
     abacus_modify_stru as _abacus_modify_stru,
     abacus_modify_input as _abacus_modify_input,
