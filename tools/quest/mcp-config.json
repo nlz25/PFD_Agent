@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "StructureGenerateServer": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "tools/abacus",
+        "python",
+        "server.py"
+      ],
+      "env": {
+        "MCP_TRANSPORT": "stdio"
+      },
+      "metadata": {
+        "name": "QuestServer",
+        "description": "Quest calculation",
+        "author": "MatCreator Team",
+        "category": "materials"
+      }
+    }
+  }
+}

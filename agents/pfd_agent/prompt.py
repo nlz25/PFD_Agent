@@ -1,8 +1,0 @@
-GlobalInstruction = """
-"""
-
-PFDAgentDescription = " "
-
-PFDAgentInstruction = f"""
-
-"""

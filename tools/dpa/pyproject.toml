@@ -1,0 +1,15 @@
+[project]
+name = "dpa-server"
+version = "0.1.0"
+description = "Deep Potential (DP) model training and calculation"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ase>=3.26.0",
+    "bohr-agent-sdk>=0.1.101",
+    "bohrium-sdk>=0.13.0",
+    "numpy>=2.3.2",
+    "dpdata>=0.2.25",
+    "deepmd-kit==3.1.0",
+    "matcreator @ git+https://github.com/nlz25/PFD_Agent.git@ruoyu-dev"
+]

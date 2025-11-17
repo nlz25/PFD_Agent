@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "DatabaseServer": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "tools/database",
+        "python",
+        "server.py"
+      ],
+      "env": {
+        "MCP_TRANSPORT": "stdio"
+      },
+      "metadata": {
+        "name": "DatabaseServer",
+        "description": "Database operation",
+        "author": "MatCreator Team",
+        "category": "materials"
+      }
+    }
+  }
+}
