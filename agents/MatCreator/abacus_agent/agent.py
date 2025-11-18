@@ -59,7 +59,7 @@ executor = {
                 "password": bohrium_password,
                 "program_id": bohrium_project_id,
                 "input_data": {
-                    "image_name": "registry.dp.tech/dptech/dp/native/prod-22618/abacus-agent-tools:v0.2",
+                    "image_name": "registry.dp.tech/dptech/dp/native/prod-26745/matcreator:0.0.1",
                     "job_type": "container",
                     "platform": "ali",
                     "scass_type": "c32_m64_cpu",

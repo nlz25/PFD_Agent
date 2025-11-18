@@ -10,22 +10,17 @@ from matcreator.tools.log import (
     resubmit_workflow_log,
     after_tool_log_callback
     )
-#from .abacus_agent.agent import abacus_agent
 from ..abacus_agent.agent import abacus_agent
 from ..dpa_agent.agent import dpa_agent
-#from .dpa_agent.agent import dpa_agent
-#from .structure_agent.agent import structure_agent
-import os, json
+import os
+from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL, BOHRIUM_USERNAME, BOHRIUM_PASSWORD, BOHRIUM_PROJECT_ID
 
-# Set the secret key in ~/.abacusagent/env.json or as an environment variable, or modify the code to set it directly.
-env_file = os.path.expanduser("~/.pfd_agent/env.json")
-if os.path.isfile(env_file):
-    env = json.load(open(env_file, "r"))
-else:
-    env = {}
-model_name = env.get("LLM_MODEL", os.environ.get("LLM_MODEL", ""))
-model_api_key = env.get("LLM_API_KEY", os.environ.get("LLM_API_KEY", ""))
-model_base_url = env.get("LLM_BASE_URL", os.environ.get("LLM_BASE_URL", ""))
+model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
+model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)
+model_base_url = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
+bohrium_username = os.environ.get("BOHRIUM_USERNAME", BOHRIUM_USERNAME)
+bohrium_password = os.environ.get("BOHRIUM_PASSWORD", BOHRIUM_PASSWORD)
+bohrium_project_id = int(os.environ.get("BOHRIUM_PROJECT_ID", BOHRIUM_PROJECT_ID))
 
 description="""
 The main coordinator agent for PFD (pretrain-finetuning-distillation) workflow. Handles PFD workflow and delegates DPA/ABACUS tasks to specialized sub-agents.
@@ -37,8 +32,9 @@ Mission
     MD exploration → data curation (entropy selection) → DFT labeling (ABACUS) → model training (DPA).
 
 Before any actually calculation, you must verify with user the following critical parameters:
-- MD: ensemble (NVT/NPT/NVE), temperature(s), total simulation time (ps), timestep/expected steps.
+- MD: ensemble (NVT/NPT/NVE), temperature(s), total simulation time (ps), timestep/expected steps, save interval steps.
 - Curation: max_sel (and chunk_size if applicable).
+- ABACUS: kspacing (default 0.14).
 - Training: target epochs (or equivalent); propose a short validation run if long.
 
 You have two specialized sub‑agents: 
@@ -63,6 +59,45 @@ Response format (strict)
 - Result: concise outputs with absolute paths and critical metrics (e.g., frames selected, final energy).
 - Next: the immediate next step or a final recap with follow‑ups.
 """
+
+executor = {
+    "bohr": {
+        "type": "dispatcher",
+        "machine": {
+            "batch_type": "Bohrium",
+            "context_type": "Bohrium",
+            "remote_profile": {
+                "email": bohrium_username,
+                "password": bohrium_password,
+                "program_id": bohrium_project_id,
+                "input_data": {
+                    "image_name": "registry.dp.tech/dptech/dp/native/prod-26745/matcreator:0.0.1",
+                    "job_type": "container",
+                    "platform": "ali",
+                    "scass_type": "1 * NVIDIA V100_16g",
+                },
+            },
+        }
+    },
+    "local": {"type": "local",}
+}
+
+EXECUTOR_MAP = {
+    "run_molecular_dynamics": executor["bohr"],
+    "optimize_structure": executor["bohr"],
+    "training": executor["bohr"],
+    "ase_calculation": executor["bohr"],
+}
+
+STORAGE = {
+    "type": "https",
+    "plugin":{
+        "type": "bohrium",
+        "username": bohrium_username,
+        "password": bohrium_password,
+        "project_id": bohrium_project_id,
+    }
+}
 
 
 # entropy filter toolset

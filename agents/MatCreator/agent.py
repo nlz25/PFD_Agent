@@ -83,7 +83,7 @@ root_agent = LlmAgent(
     instruction=instruction,
     global_instruction=global_instruction,
     #tools=[abacus_tools, dpa_tools, structure_tools],
-    sub_agents=[#pfd_agent, 
+    sub_agents=[pfd_agent, 
                 #database_agent, 
                 abacus_agent,
                 dpa_agent
