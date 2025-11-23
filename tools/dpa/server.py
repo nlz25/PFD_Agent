@@ -3,9 +3,9 @@ import os
 import argparse
 from typing import Optional, Union, Literal, Dict, Any, List, Tuple
 from pathlib import Path
+import json
 import time
-from dotenv import load_dotenv
-from matcreator.tools.dpa import (
+from dpa import (
     get_base_model_path as _get_base_model_path,
     optimize_structure as _optimize_structure,
     run_molecular_dynamics as _run_molecular_dynamics,
@@ -16,11 +16,60 @@ from matcreator.tools.dpa import (
     training as _training,
     )
 
-load_dotenv(os.path.expanduser(".env"), override=True)
-
 DPA_MODEL_PATH = "/home/ruoyu/dev/PFD-Agent/.tests/dpa/DPA2_medium_28_10M_rc0.pt"
-DPA_SERVER_WORK_PATH = "/tmp/dpa_server"
 
+ENVS = {
+    "DPA_SERVER_WORK_PATH": "/tmp/dpa_server",
+    "DPA_MODEL_PATH": "/home/ruoyu/dev/PFD-Agent/.tests/dpa/DPA2_medium_28_10M_rc0.pt",
+
+    # bohrium settings
+    #"BOHRIUM_USERNAME": "",
+    #"BOHRIUM_PASSWORD": "",
+    #"BOHRIUM_PROJECT_ID": "",
+
+}
+
+def set_envs():
+    """
+    Set environment variables for AbacusAgent.
+    
+    Args:
+        transport_input (str, optional): The transport protocol to use. Defaults to None.
+        model_input (str, optional): The model to use. Defaults to None.
+        port_input (int, optional): The port number to run the MCP server on. Defaults to None.
+        host_input (str, optional): The host address to run the MCP server on. Defaults to None.
+    
+    Returns:
+        dict: The environment variables that have been set.
+    
+    Notes:
+        - The input parameters has higher priority than the default values in `ENVS`.
+        - If the `~/.abacusagent/env.json` file does not exist, it will be created with default values.
+    """
+    # read setting in ~/.abacusagent/env.json
+    envjson_file = os.path.expanduser("~/.dpa_server/env.json")
+    if os.path.isfile(envjson_file):
+        envjson = json.load(open(envjson_file, "r"))
+    else:
+        envjson = {}
+    update_envjson = False    
+    for key, value in ENVS.items():
+        if key not in envjson:
+            envjson[key] = value
+            update_envjson = True
+        
+    for key, value in envjson.items():
+        os.environ[key] = str(value)
+    
+    if update_envjson:
+        # write envjson to ~/.abacusagent/env.json
+        os.makedirs(os.path.dirname(envjson_file), exist_ok=True)
+        json.dump(
+            envjson,
+            open(envjson_file, "w"),
+            indent=4
+        )
+    return envjson
 
 def create_workpath(work_path=None):
     """
@@ -32,10 +81,19 @@ def create_workpath(work_path=None):
     Returns:
         str: The path to the working directory.
     """
-    work_path = os.environ.get("DPA_SERVER_WORK_PATH", DPA_SERVER_WORK_PATH) + f"/{time.strftime('%Y%m%d%H%M%S')}"
+    if work_path is None:
+        work_path = os.environ.get("DPA_SERVER_WORK_PATH", "/tmp/dpa_server") + f"/{time.strftime('%Y%m%d%H%M%S')}"
+        
     os.makedirs(work_path, exist_ok=True)
+    cwd = os.getcwd()
     os.chdir(work_path)
     print(f"Changed working directory to: {work_path}")
+    # write the environment variables to a file
+    json.dump({
+        k: os.environ.get(k) for k in ENVS.keys()
+    }.update({"DPA_SERVER_START_PATH": cwd}), 
+        open("env.json", "w"), indent=4)
+    
     return work_path    
 
 def parse_args():
@@ -47,7 +105,7 @@ def parse_args():
     parser.add_argument(
         "--transport",
         type=str,
-        default="sse",
+        default=None,
         choices=["sse", "streamable-http"],
         help="Transport protocol to use (default: sse), choices: sse, streamable-http"
     )
@@ -73,30 +131,31 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-
-args = parse_args()  
-    #set_envs()
-    #create_workpath()
-if args.model == "dp":
-    from dp.agent.server import CalculationMCPServer
-    mcp = CalculationMCPServer(
+def main():
+    args = parse_args()  
+    set_envs()
+    create_workpath()
+    if args.model == "dp":
+        from dp.agent.server import CalculationMCPServer
+        mcp = CalculationMCPServer(
             "AbacusServer",
             host=args.host,
             port=args.port
         )
-elif args.model == "fastmcp":
-    from mcp.server.fastmcp import FastMCP
-    mcp = FastMCP(
+    elif args.model == "fastmcp":
+        from mcp.server.fastmcp import FastMCP
+        mcp = FastMCP(
             "AbacusServer",
             host=args.host,
             port=args.port
         )
     
-@mcp.tool()
-def get_base_model_path(
-    model_path: Optional[Path]=DPA_MODEL_PATH
-    ) -> Dict[str,Any]:
-    """Resolve a usable base model path before using `run_molecular_dynamics` tool.
+    @mcp.tool()
+    def get_base_model_path(
+        model_path: Optional[Path]=DPA_MODEL_PATH
+        ) -> Dict[str,Any]:
+        """Resolve a usable base model path before using `run_molecular_dynamics` tool.
+
         Args:
             model_path (Path, optional): Explicit model path provided by the user, default to None. If 'None', the tool should determine
             the default model path from environment variables or other means.
@@ -105,12 +164,12 @@ def get_base_model_path(
             - base_model_path: normalized local Path or an HTTP(S) URI string (framework will serialize Paths),
             or None if nothing can be determined.
         """
-    return _get_base_model_path(
+        return _get_base_model_path(
             model_path=model_path
         )
     
-@mcp.tool()
-def optimize_structure( 
+    @mcp.tool()
+    def optimize_structure( 
         input_structure: Path,
         model_path: Optional[Path]= None,
         head: Optional[str]= None,
@@ -118,7 +177,7 @@ def optimize_structure(
         max_iterations: int = 100, 
         relax_cell: bool = False,
         ) -> Dict[str, Any]:
-    """
+        """
         Optimize crystal structure using a Deep Potential (DP) model.
 
         Args:
@@ -142,7 +201,7 @@ def optimize_structure(
                 - final_energy (float): Final potential energy after optimization in eV.
                 - message (str): Status or error message describing the outcome.
             """
-    return _optimize_structure( 
+        return _optimize_structure( 
             input_structure=input_structure,
             model_path=model_path,
             head=head,
@@ -152,8 +211,8 @@ def optimize_structure(
         )
         
     
-@mcp.tool()
-def run_molecular_dynamics(
+    @mcp.tool()
+    def run_molecular_dynamics(
         initial_structure: Path,
         stages: List[Dict],
         model_path: Optional[Path]= DPA_MODEL_PATH,
@@ -162,7 +221,7 @@ def run_molecular_dynamics(
         seed: Optional[int] = 42,
         head: Optional[str] = None,
         ) -> Dict:
-    """
+        """
         [Modified from AI4S-agent-tools/servers/DPACalculator] Run a multi-stage molecular dynamics simulation using Deep Potential. 
 
         This tool performs molecular dynamics simulations with different ensembles (NVT, NPT, NVE)
@@ -231,7 +290,7 @@ def run_molecular_dynamics(
         ...     seed=42
         ... )
             """
-    return _run_molecular_dynamics(
+        return _run_molecular_dynamics(
             initial_structure=initial_structure,
             stages=stages,
             model_path=model_path,
@@ -240,13 +299,13 @@ def run_molecular_dynamics(
             seed=seed,
             head=head)  
         
-@mcp.tool()
-def ase_calculation(
+    @mcp.tool()
+    def ase_calculation(
         structure_path: Union[List[Path], Path],
         model_path: Optional[Path] = None,
         head: Optional[str] = None,
             ) -> Dict[str, Any]:
-    """
+        """
         Perform energy and force (and stress) calculation on given structures using a Deep Potential model.
 
         Parameters
@@ -263,23 +322,23 @@ def ase_calculation(
         - Dict[str, Any]
             Dictionary containing paths to labeled data file and logs.
         """
-    return _ase_calculation(
+        return _ase_calculation(
             structure_path=structure_path,
             model_path=model_path,
             head=head
         )
     
-@mcp.tool()
-def train_input_doc() -> Dict[str, Any]:
-    """
-    Returns:
-        List metadata for training a Deep Potential model. 
-        You can use these information to formulate template 'config' and 'command' dict.
-    """
-    return _train_input_doc()
+    @mcp.tool()
+    def train_input_doc() -> Dict[str, Any]:
+        """
+        Returns:
+            List metadata for training a Deep Potential model. 
+            You can use these information to formulate template 'config' and 'command' dict.
+        """
+        return _train_input_doc()
     
-@mcp.tool()
-def check_train_data(
+    @mcp.tool()
+    def check_train_data(
         train_data: Path,
         valid_ratio: Optional[float] = 0.0,
         test_ratio: Optional[float] = 0.0,
@@ -287,7 +346,7 @@ def check_train_data(
         seed: Optional[int] = None,
         output_dir: Optional[Path] = None,
     ):
-    """
+        """
         Inspect training data and optionally produce a train/valid/test split.
 
         Args:
@@ -308,7 +367,7 @@ def check_train_data(
             - num_valid_frames: Frames in validation split (0 when no split).
             - num_test_frames: Frames in test split (0 when no split).
         """
-    return _check_train_data(
+        return _check_train_data(
             train_data=train_data,
             valid_ratio=valid_ratio,
             test_ratio=test_ratio,
@@ -317,35 +376,35 @@ def check_train_data(
             output_dir=output_dir
         )
     
-@mcp.tool()
-def check_input(
+    @mcp.tool()
+    def check_input(
         config: Dict[str, Any], #= load_json_file(CONFIG_PATH),
         command: Optional[Dict[str, Any]] = {},#load_json_file(COMMAND_PATH),
-        #strategy: str = "dpa",
+        strategy: str = "dpa",
     ) -> Any:
-    """
-        Validate the `config` and `command` input.
+        """
+        You should validate the `config` and `command` input based on the selected strategy.
         You need to ensure that all required fields are present and correctly formatted.
         If any required field is missing or incorrectly formatted, return a message indicating the issue.
         Make sure to pass this validation step before proceeding to training.
         """
-    return _check_input(
+        return _check_input(
             config=config,
             command=command,
-            #strategy=strategy
+            strategy=strategy
         )
     
     
-@mcp.tool()
-def training(
+    @mcp.tool()
+    def training(
         config: Dict[str, Any], #= load_json_file(CONFIG_PATH),
         train_data: Path,# = Path(TRAIN_DATA_PATH),
         model_path: Optional[Path] = DPA_MODEL_PATH,
         command: Optional[Dict[str, Any]] = {},
         valid_data: Optional[Union[List[Path], Path]] = None,
         test_data: Optional[Union[List[Path], Path]] = None,
-    ) -> Any:
-    """Train a Deep Potential (DP) machine learning force field model. This tool should only be executed once all necessary inputs are gathered and validated.
+        ) -> Any:
+        """Train a Deep Potential (DP) machine learning force field model. This tool should only be executed once all necessary inputs are gathered and validated.
             Always use 'train_input_doc' to get the template for 'config' and 'command', and use 'check_input' to validate them before calling this tool.
     
             Args:
@@ -355,7 +414,7 @@ def training(
                 model_path (Path, optional): Path to pre-trained base model. Required for model fine-tuning.
     
     """
-    return _training(
+        return _training(
             config=config,
             train_data=train_data,
             model_path=model_path,
@@ -366,7 +425,7 @@ def training(
     
     
     
+    mcp.run(transport="sse")
 
 if __name__ == "__main__":
-    create_workpath()
-    mcp.run(transport=args.transport)
+    main()

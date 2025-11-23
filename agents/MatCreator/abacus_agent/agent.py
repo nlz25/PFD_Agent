@@ -3,19 +3,21 @@ from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.mcp_tool import MCPToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
 from google.genai import types
-from dp.agent.adapter.adk import CalculationMCPToolset
 import os, json
 from matcreator.tools.log import after_tool_log_callback
 
-from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL, BOHRIUM_USERNAME, BOHRIUM_PASSWORD, BOHRIUM_PROJECT_ID
-
-# Set the secret key in ~/.abacusagent/env.json or as an environment variable, or modify the code t
-model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
-model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)
-model_base_url = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
-bohrium_username = os.environ.get("BOHRIUM_USERNAME", BOHRIUM_USERNAME)
-bohrium_password = os.environ.get("BOHRIUM_PASSWORD", BOHRIUM_PASSWORD)
-bohrium_project_id = int(os.environ.get("BOHRIUM_PROJECT_ID", BOHRIUM_PROJECT_ID))
+# Set the secret key in ~/.abacusagent/env.json or as an environment variable, or modify the code to set it directly.
+env_file = os.path.expanduser("~/.pfd_agent/env.json")
+if os.path.isfile(env_file):
+    env = json.load(open(env_file, "r"))
+else:
+    env = {}
+model_name = env.get("LLM_MODEL", os.environ.get("LLM_MODEL", ""))
+model_api_key = env.get("LLM_API_KEY", os.environ.get("LLM_API_KEY", ""))
+model_base_url = env.get("LLM_BASE_URL", os.environ.get("LLM_BASE_URL", ""))
+bohrium_username = env.get("BOHRIUM_USERNAME", os.environ.get("BOHRIUM_USERNAME", ""))
+bohrium_password = env.get("BOHRIUM_PASSWORD", os.environ.get("BOHRIUM_PASSWORD", ""))
+bohrium_project_id = env.get("BOHRIUM_PROJECT_ID", os.environ.get("BOHRIUM_PROJECT_ID", ""))
 
 description="""
 You are the ABACUS agent for executing ABACUS DFT materials calculations. You help users set up, run, and analyze ABACUS calculations.
@@ -91,7 +93,7 @@ STORAGE = {
     }
 }
 
-toolset = CalculationMCPToolset(
+toolset = MCPToolset(
     connection_params=SseServerParams(
         url="http://localhost:50001/sse", # Or any other MCP server URL
         sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds
@@ -105,7 +107,7 @@ toolset = CalculationMCPToolset(
         "collect_abacus_scf_results"
     ],
     #executor_map = EXECUTOR_MAP,
-    executor=executor["local"],
+    #executor=executor["bohr"],
     #storage=STORAGE,
 )
 

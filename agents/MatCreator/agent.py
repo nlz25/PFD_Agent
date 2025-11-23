@@ -6,15 +6,20 @@ from .pfd_agent.agent import pfd_agent
 from .database_agent.agent import database_agent
 from .abacus_agent.agent import abacus_agent
 from .dpa_agent.agent import dpa_agent
-from .constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL
 #from .pfd_agent.abacus_agent.agent import abacus_agent
 #from .abacus_agent.agent import abacus_agent
 #from .dpa_agent.agent import dpa_agent
 #from .structure_agent.agent import structure_agent
 
-model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
-model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)
-model_base_url = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
+# Set the secret key in ~/.abacusagent/env.json or as an environment variable, or modify the code to set it directly.
+env_file = os.path.expanduser("~/.pfd_agent/env.json")
+if os.path.isfile(env_file):
+    env = json.load(open(env_file, "r"))
+else:
+    env = {}
+model_name = env.get("LLM_MODEL", os.environ.get("LLM_MODEL", ""))
+model_api_key = env.get("LLM_API_KEY", os.environ.get("LLM_API_KEY", ""))
+model_base_url = env.get("LLM_BASE_URL", os.environ.get("LLM_BASE_URL", ""))
 
 description="""
 You are the MatCreator Agent. You route user intents to the right capability: either direct sub-agents
@@ -83,9 +88,7 @@ root_agent = LlmAgent(
     instruction=instruction,
     global_instruction=global_instruction,
     #tools=[abacus_tools, dpa_tools, structure_tools],
-    sub_agents=[#pfd_agent, 
-                #database_agent, 
-                abacus_agent,
-                dpa_agent
+    sub_agents=[pfd_agent, database_agent, 
+                abacus_agent,dpa_agent
                 ]
     )

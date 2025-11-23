@@ -5,18 +5,39 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, TypedDict, Union, Tuple, Callable
 from ase.db import connect
 from ase.io import write,read
-
+from google.adk.models import LlmRequest  
+from google.genai import types  
+from google.adk.models.lite_llm import LiteLlm
+import sqlite3, re
 from matcreator.tools.util.common import generate_work_path
 
+DB_DESCRIBE = """
+The database has a table named `dataset_info`, each row of the table is the information of an ASE dataset (a *.db file), the table has 7 columns:
+
+- ID: The global id of the dataset. An integer.
+- Elements: chemical elements containing in this dataset, arranged in lexicographic order and connected by 
+  hyphens, for example, Al-Fe-Si. A string.
+- Type: The system type of this dataset, such as Cluster, Bluk, Surface, Interface and so on. A string.
+- Fields: The related field of this dataset, such as Alloy, Catalysis, Semi Conductor and so on. A string.
+- Entries: The number of entries (chemical structures) in this dataset. An integer.
+- Source: Where does this dataset come from, such as an URL or DOI of an article. A string.
+- Path: The path of this dataset file (*.db) relative the root dir `./ai-database`. A string.
+
+For the sake of simplicity, only search the data by the `Elements` column if the user does not provide information 
+except the chemical elements or formulas. Please provide the corresponding SQL code according to the user's input below. 
+The SQL code should query all the information of an entry.
+
+Important: Just return the minimal necessary reply and enclose the SQL code with a markdown style block.
+"""
+
 # Globals configured at runtime
-DEFAULT_DB_PATH: Optional[Path] = Path(os.environ.get("ASE_DB_PATH","")).resolve()
+INFO_DB_PATH: Optional[Path] = Path(os.environ.get("INFO_DB_PATH","")).resolve()
 
-
-def _resolve_db_path(db_path: Optional[Path]) -> Path:
-    path = (db_path or DEFAULT_DB_PATH).expanduser().resolve()
-    if not path.exists():
-        raise FileNotFoundError(f"ASE database not found at {path}")
-    return path
+# def _resolve_db_path(db_path: Optional[Path]) -> Path:
+#     path = (db_path or INFO_DB_PATH).expanduser().resolve()
+#     if not path.exists():
+#         raise FileNotFoundError(f"Data information database not found at {path}")
+#     return path
 
 class AtomsInfoResult(TypedDict):
     """Result structure for model training"""
@@ -31,6 +52,94 @@ class QueryResult(TypedDict):
     ids: List[int]
     formulas: List[str]
     results: List[Dict[str, Any]]
+
+
+async def get_sql_codes_from_llm(llm: LiteLlm, user_prompts:str) -> str: 
+    
+    """
+    Generate sql codes from the user's inputs. If there is no sql code block in the response, return an empty string.
+
+    Args:
+        llm (LiteLlm): A llm instance.
+        user_prompts (str): The input prompts of the user.
+    
+    Returns:
+        The sql code. If there is no sql code block in the response, return an empty string.
+    """
+
+    prompt = DB_DESCRIBE + user_prompts
+    llm_request = LlmRequest(  
+        model = llm.model,  
+        config=types.GenerateContentConfig(),
+        contents=[ types.Content(role='user', parts=[types.Part(text=prompt)]) ]  
+    )  
+    response_text = []
+    async for llm_response in llm.generate_content_async(llm_request, stream=False):  
+        if llm_response.content:  
+            for part in llm_response.content.parts:  
+                if part.text:  
+                    response_text.append(part.text)
+    
+    response_text = "".join(response_text)
+    pattern = r'```\s*sql\s*\n(.*?)```'
+    match = re.search(pattern, response_text, re.IGNORECASE | re.DOTALL)
+
+    sql_code = ""
+    if match:
+        sql_code = match.group(1).strip()
+        sql_code = '\n'.join(line for line in sql_code.split('\n') if line.strip())
+    
+    return sql_code
+
+
+def query_information_database(sql_code:str, db_path:str):
+    
+    """
+    Execute sql command on the information database.
+
+    Args:
+        sql_code(str): The sql code returned by `get_sql_codes_from_llm`.
+        db_path(str): The path of the information database. 
+
+    Returns:
+        QueryResult:
+            - query (str): Echo of the sql code (stringified).
+            - count (int): Number of rows returned.
+            - ids (List[int]): Unique row ids.
+            - formulas (List[str]): Unique empirical formulas (if available).
+            - results (List[Dict[str, Any]]): One dict per row with keys:
+                { 'ID', 'Elements', 'Type', 'Fields', 'Entries', 'Source', 'Path' }.
+    """
+
+    if len(sql_code) == 0:
+        return QueryResult(
+            query="", count=0, ids=[], formulas=[], results=[]
+        )
+    db_path = Path(db_path)
+    parent_path = db_path.parent
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+
+        cursor = conn.cursor()
+        cursor.execute(sql_code)
+        records = cursor.fetchall() #records is a dict
+
+        query    = sql_code
+        count    = len(records)
+        ids      = []
+        formulas = []
+        results  = []
+        for record in records:
+            item = {key:record[key] for key in record.keys()}
+            item["Path"] = str(parent_path / item["Path"])
+            results.append(item)
+            ids.append(record["ID"])
+            formulas.append(record["Elements"])
+
+        return QueryResult(
+            query=query, count=count, ids=ids, formulas=formulas, results=results
+        )
 
 #@mcp.tool()
 def read_user_structure(
@@ -94,20 +203,19 @@ def read_user_structure(
         )        
 
 
-
 #@mcp.tool()
 def query_compounds(
-    selection: Union[dict,int,str,List[Union[str,Tuple]]]=None,
+    selection: Union[dict,int,str,List[Union[str,Tuple]]],
+    db_path: str,
     exclusive_elements: Union[str, List[str]] = None,
     limit: Optional[int] = None,
-    db_path: Optional[Path] = None,
     custom_args: Dict[str, Any] = {},
 ) -> Dict[str, Any]:
     """Query an ASE database for structures using flexible selectors and optional filters.
 
     Overview:
         Wraps `ase.db.connect(...).select(...)` and returns a compact summary of matching rows.
-        The database path is resolved from `db_path` or the `ASE_DB_PATH` environment variable.
+        The database path is resolved from `db_path`.
 
     Parameters:
         selection (int | str | list[str | tuple] | None):
@@ -120,6 +228,9 @@ def query_compounds(
                 • combined: 'formula=Si32,pbc=True,energy<-1.0' or 'Si,O'
             - list[str]: list of string expressions, e.g. `['formula=Si32', 'pbc=True']`.
             - list[tuple]: list of `(key, op, value)` tuples, e.g. `[("energy", "<", -1.0)]`.
+        
+        db_path (str):
+            Path to the ASE database.
 
         exclusive_elements (str | set[str] | None):
             Optional post-filtering by chemical elements. Only entries whose structures within the chemical space specified can
@@ -127,9 +238,6 @@ def query_compounds(
         
         limit (int | None):
             Maximum number of rows to return (applied during ASE selection).
-
-        db_path (Path | None):
-            Path to the ASE database. Defaults to `ASE_DB_PATH` if not provided.
 
         Other key arguments that may be forwarded to `ase.db.Select` (common options):
             - explain (bool): Print query plan.
@@ -176,7 +284,7 @@ def query_compounds(
         - Use `sort='-energy'` and `limit=K` to quickly retrieve low/high energy candidates.
         - Set `include_data=False` for faster metadata-only scans.
     """
-    path = _resolve_db_path(db_path)
+    path = db_path
     logging.info(f"Querying ASE database at {path} with selection: {selection}")
     results: List[Dict[str, Any]] = []
     seen_ids: set[int] = set()
@@ -222,15 +330,14 @@ class ExportResult(TypedDict):
 #@mcp.tool()
 def export_entries(
     ids: List[int],
-    *,
+    db_path: str,
     fmt: Literal["extxyz", "cif", "traj"] = "extxyz",
-    db_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Export selected ASE database entries to a single structure file with summary stats."""
     if not ids:
         raise ValueError("ids must contain at least one entry id")
 
-    path = _resolve_db_path(db_path)
+    path = db_path
     work_path=Path(generate_work_path())
     work_path = work_path.expanduser().resolve()
     work_path.mkdir(parents=True, exist_ok=True)

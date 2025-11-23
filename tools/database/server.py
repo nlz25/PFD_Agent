@@ -5,6 +5,9 @@ from typing import Optional, Union, Literal, Dict, Any, List, Tuple
 from pathlib import Path
 import json
 import time
+import logging
+
+from google.adk.models.lite_llm import LiteLlm
 from mcp.server.fastmcp import FastMCP
 from database import (
     read_user_structure as _read_user_structure,
@@ -12,29 +15,23 @@ from database import (
     export_entries as _export_entries,
     )
 
+from database import get_sql_codes_from_llm as _get_sql_codes_from_llm
+from database import query_information_database as _query_information_database
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    filename='agent.log', 
+    filemode='w'         
+)
+
 ENVS = {
     "DATABASE_SERVER_WORK_PATH": "/tmp/database_server",
     "ASE_DB_PATH": "",
 }
-
+ 
 def set_envs():
-    """
-    Set environment variables for AbacusAgent.
-    
-    Args:
-        transport_input (str, optional): The transport protocol to use. Defaults to None.
-        model_input (str, optional): The model to use. Defaults to None.
-        port_input (int, optional): The port number to run the MCP server on. Defaults to None.
-        host_input (str, optional): The host address to run the MCP server on. Defaults to None.
-    
-    Returns:
-        dict: The environment variables that have been set.
-    
-    Notes:
-        - The input parameters has higher priority than the default values in `ENVS`.
-        - If the `~/.abacusagent/env.json` file does not exist, it will be created with default values.
-    """
-    # read setting in ~/.abacusagent/env.json
     envjson_file = os.path.expanduser("~/.database_server/env.json")
     if os.path.isfile(envjson_file):
         envjson = json.load(open(envjson_file, "r"))
@@ -50,7 +47,6 @@ def set_envs():
         os.environ[key] = str(value)
     
     if update_envjson:
-        # write envjson to ~/.abacusagent/env.json
         os.makedirs(os.path.dirname(envjson_file), exist_ok=True)
         json.dump(
             envjson,
@@ -61,7 +57,7 @@ def set_envs():
 
 def create_workpath(work_path=None):
     """
-    Create the working directory for AbacusAgent, and change the current working directory to it.
+    Create the working directory for DataBase agent, and change the current working directory to it.
     
     Args:
         work_path (str, optional): The path to the working directory. If None, a default path will be used.
@@ -117,8 +113,84 @@ def main():
     mcp = FastMCP(
             "DatabaseServer",
             host=args.host,
-            port=args.port
-        )
+            port=args.port)
+    
+    env_file = os.path.expanduser("~/.database_agent/env.json")
+    if os.path.isfile(env_file):
+        env = json.load(open(env_file, "r"))
+    else:
+        env = {}
+    model_name = env.get("LLM_MODEL", os.environ.get("LLM_MODEL", ""))
+    model_api_key = env.get("LLM_API_KEY", os.environ.get("LLM_API_KEY", ""))
+    model_base_url = env.get("LLM_BASE_URL", os.environ.get("LLM_BASE_URL", ""))
+    info_db_path = env.get("INFO_DB_PATH", os.environ.get("INFO_DB_PATH", ""))
+    
+    # logging.info()
+    # logging.info(f"info_db_path = {info_db_path}")
+
+    llm = LiteLlm( 
+        model    = model_name,
+        base_url = model_base_url,
+        api_key  = model_api_key
+    )
+
+
+    @mcp.tool()
+    async def get_sql_codes_from_llm(user_prompts:str) -> str: 
+        """
+        Generate sql codes from the user's inputs. If there is no sql code block in the response, return an empty string.
+        Args:
+            user_prompts (str): The input prompts of the user.
+        Returns:
+            The sql code. If there is no sql code block in the response, return an empty string.
+        """
+        return await _get_sql_codes_from_llm(llm, user_prompts)
+    
+
+    @mcp.tool()
+    def query_information_database(sql_code:str)->Tuple[str, Dict[str, Any]]:
+        """
+        Execute sql command on the information database. The function return a tuple of two elements:
+        - The descriptive string of the query result in markdown format. It can be represented to the user.
+        - The query result in a structured format.
+
+        Args:
+            sql_code(str): The sql code returned by `get_sql_codes_from_llm`.
+
+        Returns:
+            str: The descriptive string of the query result in a markdown table format. You can directly return it to the user.
+
+            QueryResult:
+                - query (str): Echo of the sql code (stringified).
+                - count (int): Number of rows returned.
+                - ids (List[int]): Unique row ids.
+                - formulas (List[str]): Unique empirical formulas (if available).
+                - results (List[Dict[str, Any]]): One dict per row with keys: { 'ID', 'Elements', 'Type', 'Fields', 'Entries', 'Source', 'Path' }. The meaning of these keys are
+                
+                    - ID: The global id of the dataset. An integer.
+                    - Elements: All the elements in this dataset, seperated by hyphen. A string, e.g. Al-Si-Fe.
+                    - Type: The system type of this dataset, such as Cluster, Bluk, Surface, Interface and so on. A string.
+                    - Fields: The related field of this dataset, such as Alloy, Catalysis, Semi Conductor and so on. A string.
+                    - Entries: The number of entries in this dataset. An integer.
+                    - Source: Where does this dataset come from. A string.
+                    - Path: The absolute path of the dataset file (*.db). A string. 
+        """
+
+        #logging.info(f"inside query_information_database info_db_path = {info_db_path}")
+        query_result = _query_information_database(sql_code, info_db_path)
+        
+
+        # The summery string is a markdown table, which contains the 
+        # ID, Elements, Type, Fields, Entries and Source, Path is omitted.
+        summary_str = "# Summary of Query Results\n\n"
+        summary_str += "You can specifically request entries by their IDs.\n\n"
+        summary_str += "| ID | Elements | Type | Fields | Entries |\n"
+        summary_str += "|----|----------|------|--------|---------|\n"
+        for row in query_result["results"]:
+            summary_str += f"| {row['ID']} | {row['Elements']} | {row['Type']} | {row['Fields']} | {row['Entries']} |\n"
+        return summary_str, query_result
+         
+
     @mcp.tool()
     def read_user_structure(
         structures: Union[List[Path], Path],
@@ -154,10 +226,10 @@ def main():
     
     @mcp.tool()
     def query_compounds(
-        selection: Union[dict,int,str,List[Union[str,Tuple]]]=None,
+        selection: Union[dict,int,str,List[Union[str,Tuple]]],
+        db_path: str,
         exclusive_elements: Union[str, List[str]] = None,
         limit: Optional[int] = None,
-        db_path: Optional[Path] = None,
         custom_args: Dict[str, Any] = {},
     ) -> Dict[str, Any]:
         """Query an ASE database for structures using flexible selectors and optional filters.
@@ -185,8 +257,8 @@ def main():
         limit (int | None):
             Maximum number of rows to return (applied during ASE selection).
 
-        db_path (Path | None):
-            Path to the ASE database. Defaults to `ASE_DB_PATH` if not provided.
+        db_path (str):
+            Path to a dataset (an ASE database file).
 
         Other key arguments that may be forwarded to `ase.db.Select` (common options):
             - explain (bool): Print query plan.
@@ -235,27 +307,25 @@ def main():
         """
         return _query_compounds(
             selection=selection,
+            db_path=db_path,
             exclusive_elements=exclusive_elements,
             limit=limit,
-            db_path=db_path,
             custom_args=custom_args,
         )
         
     @mcp.tool()        
     def export_entries(
         ids: List[int],
-        *args,
+        db_path: str,
         fmt: Literal["extxyz", "cif", "traj"] = "extxyz",
-        db_path: Optional[Path] = None,
+        
     ) -> Dict[str, Any]:
         """Export selected ASE database entries to a single structure file with summary stats."""
         return _export_entries(
             ids,
-            *args,
-            fmt=fmt,
             db_path=db_path,
+            fmt=fmt
         )
-    
     set_envs()
     create_workpath()
     mcp.run(transport="sse")

@@ -68,7 +68,7 @@ Response format (strict)
 # entropy filter toolset
 selector_toolset = MCPToolset(
     connection_params=SseServerParams(
-        url="http://localhost:50003/sse", # Or any other MCP server URL
+        url="http://localhost:50004/sse", # Or any other MCP server URL
         sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds
     ),
     tool_filter=[

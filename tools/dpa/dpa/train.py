@@ -243,17 +243,17 @@ def training(
         runner = DPTrain(config=config, train_data=train_data, command=command, model_path=model_path,
                  valid_data=valid_data, test_data=test_data)
         runner.validate()
-        #work_path=Path(generate_work_path()).absolute()
-        #work_path.mkdir(parents=True, exist_ok=True)
-        #cwd = os.getcwd()
+        work_path=Path(generate_work_path()).absolute()
+        work_path.mkdir(parents=True, exist_ok=True)
+        cwd = os.getcwd()
         # change to workdir
-        #os.chdir(work_path)
+        os.chdir(work_path)
         model, log, message = runner.run()
         logging.info("Training completed!")
         test_metrics = None
         if test_data:
             _, test_metrics = runner.test()
-        #os.chdir(cwd)
+        os.chdir(cwd)
         result ={
             "status":"success",
             "model": str(model.resolve()),

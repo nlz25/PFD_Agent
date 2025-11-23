@@ -2,13 +2,57 @@ import argparse
 import os
 import argparse
 from typing import Union, List
+import json
 import time
-from matcreator.tools.quest import (
+from quest_tool import (
     filter_by_entropy as _filter_by_entropy,
     )
 
-QUEST_SERVER_WORK_PATH= "/tmp/quest_server",
+ENVS = {
+    "QUEST_SERVER_WORK_PATH": "/tmp/quest_server",
+}
 
+def set_envs():
+    """
+    Set environment variables for AbacusAgent.
+    
+    Args:
+        transport_input (str, optional): The transport protocol to use. Defaults to None.
+        model_input (str, optional): The model to use. Defaults to None.
+        port_input (int, optional): The port number to run the MCP server on. Defaults to None.
+        host_input (str, optional): The host address to run the MCP server on. Defaults to None.
+    
+    Returns:
+        dict: The environment variables that have been set.
+    
+    Notes:
+        - The input parameters has higher priority than the default values in `ENVS`.
+        - If the `~/.abacusagent/env.json` file does not exist, it will be created with default values.
+    """
+    # read setting in ~/.abacusagent/env.json
+    envjson_file = os.path.expanduser("~/.quest_server/env.json")
+    if os.path.isfile(envjson_file):
+        envjson = json.load(open(envjson_file, "r"))
+    else:
+        envjson = {}
+    update_envjson = False    
+    for key, value in ENVS.items():
+        if key not in envjson:
+            envjson[key] = value
+            update_envjson = True
+        
+    for key, value in envjson.items():
+        os.environ[key] = str(value)
+    
+    if update_envjson:
+        # write envjson to ~/.abacusagent/env.json
+        os.makedirs(os.path.dirname(envjson_file), exist_ok=True)
+        json.dump(
+            envjson,
+            open(envjson_file, "w"),
+            indent=4
+        )
+    return envjson
 
 def create_workpath(work_path=None):
     """
@@ -20,10 +64,19 @@ def create_workpath(work_path=None):
     Returns:
         str: The path to the working directory.
     """
-    work_path = QUEST_SERVER_WORK_PATH  + f"/{time.strftime('%Y%m%d%H%M%S')}"
+    if work_path is None:
+        work_path = os.environ.get("QUEST_SERVER_WORK_PATH", "/tmp/quest_server") + f"/{time.strftime('%Y%m%d%H%M%S')}"
+        
     os.makedirs(work_path, exist_ok=True)
+    cwd = os.getcwd()
     os.chdir(work_path)
     print(f"Changed working directory to: {work_path}")
+    # write the environment variables to a file
+    json.dump({
+        k: os.environ.get(k) for k in ENVS.keys()
+    }.update({"QUEST_SERVER_START_PATH": cwd}), 
+        open("env.json", "w"), indent=4)
+    
     return work_path    
 
 def parse_args():
@@ -35,7 +88,7 @@ def parse_args():
     parser.add_argument(
         "--transport",
         type=str,
-        default="sse",
+        default=None,
         choices=["sse", "streamable-http"],
         help="Transport protocol to use (default: sse), choices: sse, streamable-http"
     )
@@ -61,26 +114,26 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-
-args = parse_args()  
-if args.model == "dp":
-    from dp.agent.server import CalculationMCPServer
-    mcp = CalculationMCPServer(
-            "QuestServer",
+def main():
+    args = parse_args()  
+    print(args)
+    if args.model == "dp":
+        from dp.agent.server import CalculationMCPServer
+        mcp = CalculationMCPServer(
+            "AbacusServer",
             host=args.host,
             port=args.port
         )
-elif args.model == "fastmcp":
-    from mcp.server.fastmcp import FastMCP
-    mcp = FastMCP(
-            "QuestServer",
+    elif args.model == "fastmcp":
+        from mcp.server.fastmcp import FastMCP
+        mcp = FastMCP(
+            "AbacusServer",
             host=args.host,
             port=args.port
         )
-
-
-@mcp.tool()
-def filter_by_entropy(
+    
+    @mcp.tool()
+    def filter_by_entropy(
         iter_confs: Union[List[str], str],
         reference: Union[List[str], str] = [],
         chunk_size: int = 10,
@@ -90,13 +143,13 @@ def filter_by_entropy(
         h: float = 0.015,
         max_sel: int =50,
         ):
-    """Select a diverse subset of configurations by maximizing dataset entropy.
+        """Select a diverse subset of configurations by maximizing dataset entropy.
 
-    This tool performs iterative, entropy-based subset selection from a pool of candidate
-    configurations ("iterative set") against an optional reference set. At each iteration,
-    it scores remaining candidates by their incremental contribution to the dataset entropy
-    and picks the top `chunk_size`. Selection stops when either `max_sel` is reached or the
-    entropy increment falls below a small threshold.
+        This tool performs iterative, entropy-based subset selection from a pool of candidate
+        configurations ("iterative set") against an optional reference set. At each iteration,
+        it scores remaining candidates by their incremental contribution to the dataset entropy
+        and picks the top `chunk_size`. Selection stops when either `max_sel` is reached or the
+        entropy increment falls below a small threshold.
 
         Backend and acceleration
         - If PyTorch is available, a GPU-accelerated path is used (quests.gpu.*); otherwise a CPU path is used.
@@ -163,7 +216,7 @@ def filter_by_entropy(
             chunk_size=10, k=32, cutoff=5.0, h=0.015, max_sel=100
         )
         """
-    return _filter_by_entropy(
+        return _filter_by_entropy(
             iter_confs=iter_confs,
             reference=reference,
             chunk_size=chunk_size,
@@ -174,7 +227,9 @@ def filter_by_entropy(
             max_sel=max_sel,
         )
     
+    set_envs()
+    create_workpath()
+    mcp.run(transport="sse")
 
 if __name__ == "__main__":
-    create_workpath()
-    mcp.run(transport=args.transport)
+    main()

@@ -23,7 +23,7 @@ pip install -e .
 cd tools/abacus
 uv sync 
 
-nv run server.py --port 50001
+uv run server.py --port 50001
 ```
 Repeat this for all the tools.
 

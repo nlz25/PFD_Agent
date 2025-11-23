@@ -5,8 +5,7 @@ from typing import Optional, Union, Literal, Dict, Any, List, Tuple
 from pathlib import Path
 import json
 import time
-from dotenv import load_dotenv, find_dotenv
-from matcreator.tools.abacus import (
+from abacus import (
     abacus_prepare as _abacus_prepare,
     abacus_modify_stru as _abacus_modify_stru,
     abacus_modify_input as _abacus_modify_input,
@@ -15,10 +14,100 @@ from matcreator.tools.abacus import (
     check_abacus_inputs as _check_abacus_inputs,
     )
 
-load_dotenv(os.path.expanduser(".env"), override=True)
+ENVS = {
+    "ABACUS_SERVER_WORK_PATH": "/tmp/abacus_server",
 
-ABACUS_SERVER_WORK_PATH = "/tmp/abacus_server"
+    # bohrium settings
+    "BOHRIUM_USERNAME": "",
+    "BOHRIUM_PASSWORD": "",
+    "BOHRIUM_PROJECT_ID": "",
+    
+    # -------------------- ABACUS settings--------------------------
+    "BOHRIUM_ABACUS_IMAGE": "registry.dp.tech/dptech/abacus-stable:LTSv3.10", # THE bohrium image for abacus calculations, 
+    "BOHRIUM_ABACUS_MACHINE": "c32_m64_cpu",  # THE bohrium machine for abacus calculations, c32_m64_cpu
+    "BOHRIUM_ABACUS_COMMAND": "OMP_NUM_THREADS=1 mpirun -np 16 abacus",
+    "ABACUSAGENT_SUBMIT_TYPE": "bohrium",  # local, bohrium
+    
+    # abacus pp orb settings
+    "ABACUS_COMMAND": "abacus",  # abacus executable command
+    "ABACUS_PP_PATH": "",  # abacus pseudopotential library path
+    "ABACUS_ORB_PATH": "",  # abacus orbital library path
+    "ABACUS_SOC_PP_PATH": "",  # abacus SOC pseudopotential library path
+    "ABACUS_SOC_ORB_PATH": "",  # abacus SOC orbital library path
 
+
+    # PYATB settings
+    "PYATB_COMMAND": "OMP_NUM_THREADS=1 pyatb",
+    
+    "_comments":{
+        "ABACUS_WORK_PATH": "The working directory for AbacusAgent, where all temporary files will be stored.",
+        "ABACUS_SUBMIT_TYPE": "The type of submission for ABACUS, can be local or bohrium.",
+        "ABACUSAGENT_TRANSPORT": "The transport protocol for AbacusAgent, can be 'sse' or 'streamable-http'.",
+        "ABACUSAGENT_HOST": "The host address for the AbacusAgent server.",
+        "ABACUSAGENT_PORT": "The port number for the AbacusAgent server.",
+        "ABACUSAGENT_MODEL": "The model to use for AbacusAgent, can be 'fastmcp', 'test', or 'dp'.",
+        "LLM_MODEL": "The model name for the LLM to use. Like: openai/qwen-turbo, deepseek/deepseek-chat",
+        "LLM_API_KEY": "The API key for the LLM service.",
+        "LLM_BASE_URL": "The base URL for the LLM service, if applicable.",
+        "BOHRIUM_USERNAME": "The username for Bohrium.",        
+        "BOHRIUM_PASSWORD": "The password for Bohrium.",
+        "BOHRIUM_PROJECT_ID": "The project ID for Bohrium.",
+        "BOHRIUM_ABACUS_IMAGE": "The image for Abacus on Bohrium.",
+        "BOHRIUM_ABACUS_MACHINE": "The machine type for Abacus on Bohrium.",
+        "BOHRIUM_ABACUS_COMMAND": "The command to run Abacus on Bohrium",
+        "ABACUS_COMMAND": "The command to execute Abacus on local machine.",
+        "ABACUS_PP_PATH": "The path to the pseudopotential library for Abacus.",
+        "ABACUS_ORB_PATH": "The path to the orbital library for ABACUS_PP_PATH",
+        "ABACUS_SOC_PP_PATH": "The path to the SOC pseudopotential library for Abacus.",
+        "ABACUS_SOC_ORB_PATH": "The path to the orbital library for ABACUS_SOC_PP_PATH.",
+        "PYATB_COMMAND": "The command to execute PYATB on local machine.",
+        "_comments": "This dictionary contains the default environment variables for AbacusAgent."
+    }
+}
+
+def set_envs():
+    """
+    Set environment variables for AbacusAgent.
+    
+    Args:
+        transport_input (str, optional): The transport protocol to use. Defaults to None.
+        model_input (str, optional): The model to use. Defaults to None.
+        port_input (int, optional): The port number to run the MCP server on. Defaults to None.
+        host_input (str, optional): The host address to run the MCP server on. Defaults to None.
+    
+    Returns:
+        dict: The environment variables that have been set.
+    
+    Notes:
+        - The input parameters has higher priority than the default values in `ENVS`.
+        - If the `~/.abacusagent/env.json` file does not exist, it will be created with default values.
+    """
+    # read setting in ~/.abacusagent/env.json
+    envjson_file = os.path.expanduser("~/.abacus_server/env.json")
+    if os.path.isfile(envjson_file):
+        envjson = json.load(open(envjson_file, "r"))
+    else:
+        envjson = {}
+    update_envjson = False    
+    for key, value in ENVS.items():
+        if key not in envjson:
+            envjson[key] = value
+            update_envjson = True
+        
+    for key, value in envjson.items():
+        os.environ[key] = str(value)
+    
+    if update_envjson:
+        # write envjson to ~/.abacusagent/env.json
+        os.makedirs(os.path.dirname(envjson_file), exist_ok=True)
+        del envjson["_comments"]  # remove comments before writing
+        envjson["_comments"] = ENVS["_comments"]  # add comments from ENVS
+        json.dump(
+            envjson,
+            open(envjson_file, "w"),
+            indent=4
+        )
+    return envjson
 
 def create_workpath(work_path=None):
     """
@@ -30,10 +119,19 @@ def create_workpath(work_path=None):
     Returns:
         str: The path to the working directory.
     """
-    work_path = os.environ.get("ABACUS_SERVER_WORK_PATH", ABACUS_SERVER_WORK_PATH) + f"/{time.strftime('%Y%m%d%H%M%S')}"
+    if work_path is None:
+        work_path = os.environ.get("ABACUS_SERVER_WORK_PATH", "/tmp/abacus_server") + f"/{time.strftime('%Y%m%d%H%M%S')}"
+        
     os.makedirs(work_path, exist_ok=True)
+    cwd = os.getcwd()
     os.chdir(work_path)
     print(f"Changed working directory to: {work_path}")
+    # write the environment variables to a file
+    json.dump({
+        k: os.environ.get(k) for k in ENVS.keys()
+    }.update({"ABACUS_SERVER_START_PATH": cwd}), 
+        open("env.json", "w"), indent=4)
+    
     return work_path    
 
 def parse_args():
@@ -45,7 +143,7 @@ def parse_args():
     parser.add_argument(
         "--transport",
         type=str,
-        default="sse",
+        default=None,
         choices=["sse", "streamable-http"],
         help="Transport protocol to use (default: sse), choices: sse, streamable-http"
     )
@@ -71,25 +169,26 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-
-args = parse_args()  
-if args.model == "dp":
-    from dp.agent.server import CalculationMCPServer
-    mcp = CalculationMCPServer(
+def main():
+    args = parse_args()  
+    print(args)
+    if args.model == "dp":
+        from dp.agent.server import CalculationMCPServer
+        mcp = CalculationMCPServer(
             "AbacusServer",
             host=args.host,
             port=args.port
         )
-elif args.model == "fastmcp":
-    from mcp.server.fastmcp import FastMCP
-    mcp = FastMCP(
+    elif args.model == "fastmcp":
+        from mcp.server.fastmcp import FastMCP
+        mcp = FastMCP(
             "AbacusServer",
             host=args.host,
             port=args.port
         )
     
-@mcp.tool()
-def abacus_prepare(
+    @mcp.tool()
+    def abacus_prepare(
         structure_path: Path,
         job_type: Literal["scf", "relax", "cell-relax", "md"] = "scf",
         lcao: bool = True,
@@ -102,7 +201,7 @@ def abacus_prepare(
         extra_input: Optional[Dict[str, Any]] = None,
         frames: Optional[List[int]] = None  # select specific frame indices, default: all
         ) -> Dict[str, Any]:
-    """
+        """
         Prepare mandatory input files for ABACUS calculation from a file that contain a list of structures.
         This function does not perform any actual calculation, but is necessary to use this function
         to prepare a list of directories containing necessary input files for ABACUS calculations in batch mode. 
@@ -139,7 +238,7 @@ def abacus_prepare(
             ValueError: If LCAO basis set is selected but no orbital library path is provided.
             RuntimeError: If there is an error preparing input files.
         """
-    return _abacus_prepare(
+        return _abacus_prepare(
             structure_path=structure_path,
             job_type=job_type,
             lcao=lcao,
@@ -153,9 +252,9 @@ def abacus_prepare(
             frames=frames
         )
     
-@mcp.tool()
-def check_abacus_inputs(abacus_inputs_dir_ls: Union[List[Path], Path]) -> Dict[str, Any]:
-    """
+    @mcp.tool()
+    def check_abacus_inputs(abacus_inputs_dir_ls: Union[List[Path], Path]) -> Dict[str, Any]:
+        """
         Check if the ABACUS input files are valid. Always check the afer preparing input files with abacus_prepare_batch, 
         or after modifying them with abacus_modify_input_batch or abacus_modify_stru.
         Args:
@@ -164,16 +263,16 @@ def check_abacus_inputs(abacus_inputs_dir_ls: Union[List[Path], Path]) -> Dict[s
         Returns:
             Tuple[bool, str]: A tuple containing a boolean indicating validity and an error message if invalid.
         """
-    return _check_abacus_inputs(abacus_inputs_dir_ls)
+        return _check_abacus_inputs(abacus_inputs_dir_ls)
     
-@mcp.tool()
-def abacus_modify_input(
+    @mcp.tool()
+    def abacus_modify_input(
         abacus_inputs_dir_list: Union[Path,List[Path]],
         dft_plus_u_settings: Optional[Dict[str, Union[float, Tuple[Literal["p", "d", "f"], float]]]] = None,
         extra_input: Optional[Dict[str, Any]] = None,
         remove_input: Optional[List[str]] = None
         ) -> Dict[str, Any]:
-    """
+        """
         Modify keywords in ABACUS INPUT file.
         Args:
             abacus_inputs_dir (str): Path to the directory containing the ABACUS input files.
@@ -193,15 +292,15 @@ def abacus_modify_input(
             FileNotFoundError: If path of given INPUT file does not exist
             RuntimeError: If write modified INPUT file failed
         """
-    return _abacus_modify_input(
+        return _abacus_modify_input(
             abacus_inputs_dir_list=abacus_inputs_dir_list,
             dft_plus_u_settings=dft_plus_u_settings,
             extra_input=extra_input,
             remove_input=remove_input
         )
         
-@mcp.tool()
-def abacus_modify_stru(
+    @mcp.tool()
+    def abacus_modify_stru(
         abacus_inputs_dir_ls: Union[Path, List[Path]],
         pp: Optional[Dict[str, str]] = None,
         orb: Optional[Dict[str, str]] = None,
@@ -213,7 +312,7 @@ def abacus_modify_stru(
         angle1: Optional[List[float]] = None,
         angle2: Optional[List[float]] = None
     ) -> Dict[str, Any]:
-    """
+        """
         Modify pseudopotential, orbital, atom fixation, initial magnetic moments and initial velocities in ABACUS STRU file.
         Args:
             abacus_inputs_dir_ls (List[Path]): A list of paths to the directory containing the ABACUS input files.
@@ -245,7 +344,7 @@ def abacus_modify_stru(
             or length of fixed_atoms_idx and movable_coords are not equal, or element in movable_coords are not a list with 3 bool elements
             KeyError: If pseudopotential or orbital are not provided for a element
         """
-    return _abacus_modify_stru(
+        return _abacus_modify_stru(
         abacus_inputs_dir_ls=abacus_inputs_dir_ls,
         pp=pp,
         orb=orb,
@@ -259,11 +358,11 @@ def abacus_modify_stru(
     )
     
     
-@mcp.tool()
-def abacus_calculation_scf(
+    @mcp.tool()
+    def abacus_calculation_scf(
         abacus_inputs_dir_ls: Union[List[str], str],
     ) -> Dict[str, Any]:
-    """
+        """
         Run ABACUS SCF calculation.
 
         Args:
@@ -272,15 +371,15 @@ def abacus_calculation_scf(
             A dictionary containing the path to output file of ABACUS calculation, and a dictionary containing whether the SCF calculation
             finished normally, the SCF is converged or not, the converged SCF energy and total time used.
         """
-    return _abacus_calculation_scf(
+        return _abacus_calculation_scf(
             abacus_inputs_dir_ls=abacus_inputs_dir_ls
         )
         
-@mcp.tool()
-def collect_abacus_scf_results(
+    @mcp.tool()
+    def collect_abacus_scf_results(
         scf_work_dir_ls: Union[List[Path], Path],
     ) -> Dict[str, Any]:
-    """
+        """
         Collect results from ABACUS SCF calculation.
 
         Args:
@@ -288,10 +387,13 @@ def collect_abacus_scf_results(
         Returns:
             A dictionary containing the path to output file of ABACUS calculation in extxyz format. The extxyz file contains the atomic structure and the total energy, atomic forces, etc., from the SCF calculation.
         """
-    return _collect_abacus_scf_results(
+        return _collect_abacus_scf_results(
             scf_work_dir_ls=scf_work_dir_ls
         )
+    
+    set_envs()
+    create_workpath()
+    mcp.run(transport="sse")
 
 if __name__ == "__main__":
-    create_workpath()
-    mcp.run(transport=args.transport)
+    main()
