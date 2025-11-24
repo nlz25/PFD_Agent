@@ -11,8 +11,8 @@ from typing import (
 )
 from matcreator.tools.util.common import generate_work_path
 from .dp import DPTrain
-import os
 from ase.io import read, write
+import shutil
 from jsonschema import validate, ValidationError
 
 
@@ -243,17 +243,18 @@ def training(
         runner = DPTrain(config=config, train_data=train_data, command=command, model_path=model_path,
                  valid_data=valid_data, test_data=test_data)
         runner.validate()
-        #work_path=Path(generate_work_path()).absolute()
-        #work_path.mkdir(parents=True, exist_ok=True)
-        #cwd = os.getcwd()
-        # change to workdir
-        #os.chdir(work_path)
-        model, log, message = runner.run()
+        work_path=Path(generate_work_path()).absolute()
+        work_path.mkdir(parents=True, exist_ok=True)
+        model, log, message = runner.run(workdir=work_path)
+        #shutil.copy2(model, work_path / model.name)
+        #shutil.copy2(log, work_path / log.name)
+        #model = work_path / model.name
+        #log = work_path / log.name
+        
         logging.info("Training completed!")
         test_metrics = None
         if test_data:
             _, test_metrics = runner.test()
-        #os.chdir(cwd)
         result ={
             "status":"success",
             "model": str(model.resolve()),
