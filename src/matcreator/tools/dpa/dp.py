@@ -13,12 +13,84 @@ from dargs import (
 )
 from ase.io import read
 import numpy as np
-import dpdata  # type: ignore
+import dpdata
+from sqlalchemy import true  # type: ignore
 from matcreator.modules.train import Train
 from matcreator.modules.utils import run_command
 import logging
 
-DPA2_CONFIG_TEMPLATE = {
+
+DPA1_CONFIG_TEMPLATE = {
+    "model": {
+        "type_map": [
+            "H","He","Li","Be","B","C","N","O","F","Ne","Na","Mg","Al","Si","P","S","Cl","Ar","K","Ca","Sc","Ti","V",
+            "Cr","Mn","Fe","Co","Ni","Cu","Zn","Ga","Ge","As","Se","Br","Kr","Rb","Sr","Y","Zr","Nb","Mo","Tc","Ru","Rh","Pd","Ag","Cd","In","Sn","Sb","Te",
+            "I","Xe","Cs","Ba","La","Ce","Pr","Nd","Pm","Sm","Eu","Gd","Tb","Dy","Ho","Er","Tm","Yb","Lu","Hf",
+            "Ta","W","Re","Os","Ir","Pt","Au","Hg","Tl","Pb","Bi","Po","At","Rn","Fr","Ra","Ac","Th","Pa","U","Np","Pu","Am","Cm",
+            "Bk","Cf","Es","Fm","Md","No","Lr","Rf","Db","Sg","Bh","Hs","Mt","Ds","Rg","Cn","Nh","Fl","Mc","Lv","Ts","Og"
+        ],
+        "descriptor": {
+            "type": "se_atten_v2",
+            "sel": "auto",
+            "rcut_smth": 0.5,
+            "rcut": 8.0,
+            "neuron": [
+                25,
+                50,
+                100
+            ],
+            "resnet_dt": False,
+            "axis_neuron": 12,
+            "attn": 128,
+            "attn_layer": 0,
+            "attn_dotr": True,
+            "seed": 1111
+        },
+        "fitting_net": {
+            "neuron": [
+                240,
+                240,
+                240
+            ],
+            "resnet_dt": False,
+            "seed": 1111
+        }
+    },
+    "learning_rate": {
+        "_comment": "The 'decay_steps' need to be dynamically updated based on the number of batches per epoch.",
+        "type": "exp",
+        "decay_steps": 10,
+        "start_lr": 0.001,
+        "stop_lr": 3.51e-08,
+    },
+    "loss": {
+        "type": "ener",
+        "start_pref_e": 0.02,
+        "limit_pref_e": 1,
+        "start_pref_f": 1000,
+        "limit_pref_f": 1,
+        "start_pref_v": 0,
+        "limit_pref_v": 0,
+        "_comment": " that's all"
+    },
+    "training": {
+        "training_data": {
+            "systems": [
+            ],
+            "batch_size": "auto",
+            "auto_prob": "prob_sys_size"
+        },
+        "numb_steps": 100,
+        "warmup_steps": 0,
+        "gradient_max_norm": 5.0,
+        "seed": 2912457061,
+        "disp_file": "lcurve.out",
+        "disp_freq": 100,
+        "save_freq": 2000,
+    }
+}
+
+DPA_CONFIG_TEMPLATE = {
     "_comment": "The template configuration file for training DPA model",
     "model": {
         "_comment": "The 'type map' lists all the elements that will be included in the model.",
@@ -29,64 +101,6 @@ DPA2_CONFIG_TEMPLATE = {
             "Ta","W","Re","Os","Ir","Pt","Au","Hg","Tl","Pb","Bi","Po","At","Rn","Fr","Ra","Ac","Th","Pa","U","Np","Pu","Am","Cm",
             "Bk","Cf","Es","Fm","Md","No","Lr","Rf","Db","Sg","Bh","Hs","Mt","Ds","Rg","Cn","Nh","Fl","Mc","Lv","Ts","Og"
         ],
-        "descriptor": {
-            "type": "dpa2",
-            "repinit": {
-                "tebd_dim": 8,
-                "rcut": 6.0,
-                "rcut_smth": 0.5,
-                "nsel": 120,
-                "neuron": [
-                    25,
-                    50,
-                    100
-                ],
-                "axis_neuron": 12,
-                "activation_function": "tanh",
-                "three_body_sel": 40,
-                "three_body_rcut": 4.0,
-                "three_body_rcut_smth": 3.5,
-                "use_three_body": True
-            },
-            "repformer": {
-                "rcut": 4.0,
-                "rcut_smth": 3.5,
-                "nsel": 40,
-                "nlayers": 6,
-                "g1_dim": 128,
-                "g2_dim": 32,
-                "attn2_hidden": 32,
-                "attn2_nhead": 4,
-                "attn1_hidden": 128,
-                "attn1_nhead": 4,
-                "axis_neuron": 4,
-                "update_h2": False,
-                "update_g1_has_conv": True,
-                "update_g1_has_grrg": True,
-                "update_g1_has_drrd": True,
-                "update_g1_has_attn": False,
-                "update_g2_has_g1g1": False,
-                "update_g2_has_attn": True,
-                "update_style": "res_residual",
-                "update_residual": 0.01,
-                "update_residual_init": "norm",
-                "attn2_has_gate": True,
-                "use_sqrt_nnei": True,
-                "g1_out_conv": True,
-                "g1_out_mlp": True
-            },
-            "add_tebd_to_repinit_out": False
-        },
-        "fitting_net": {
-            "neuron": [
-                240,
-                240,
-                240
-            ],
-            "resnet_dt": True,
-            "seed": 2509405570,
-            "_comment": " that's all"
-        },
     },
     "learning_rate": {
         "_comment": "The 'decay_steps' need to be dynamically updated based on the number of batches per epoch.",
@@ -276,9 +290,6 @@ DPA_COMMAND_JSON_SCHEMA: Dict[str, Any] = {
         "required": []
 }
 
-
-
-
 @Train.register("dpa")
 class DPTrain(Train):
     """[Modified from DPGEN2 RunDPTrain]
@@ -303,11 +314,18 @@ class DPTrain(Train):
                         "doc": DPA_COMMAND_DOC,},
         }
     
-    def _process_script(self) -> Any:
-        input_template = DPA2_CONFIG_TEMPLATE.copy()
-        input_template["training"]["numb_steps"] = self.config.get("numb_steps")
-        input_template["learning_rate"]["decay_steps"] = self.config.get("decay_steps")
-        return self._script_rand_seed(input_template)
+    def _process_script(self,finetune_mode: bool) -> Any:
+        if finetune_mode:
+            input_template = DPA_CONFIG_TEMPLATE.copy()
+            input_template["training"]["numb_steps"] = self.config.get("numb_steps")
+            input_template["learning_rate"]["decay_steps"] = self.config.get("decay_steps")
+            return input_template
+        else:
+            input_template = DPA1_CONFIG_TEMPLATE.copy()
+            input_template["training"]["numb_steps"] = self.config.get("numb_steps")
+            input_template["learning_rate"]["decay_steps"] = self.config.get("decay_steps")
+            return self._script_rand_seed(input_template)
+
     
     def validate(self):
         try:
@@ -321,10 +339,9 @@ class DPTrain(Train):
         except Exception as e:
             raise KeyError(f"Invalid training config: {e}")
 
-    def run(self)->Tuple[Path, Path, str]:
+    def run(self, workdir: Path)->Tuple[Path, Path, str]:
         """Run the core training / optimization procedure."""
         
-        config = self._process_script()
         ## prepare cli command for dp training
         dp_command = self.command.get("command", "dp").split()
         impl = self.command.get("impl", "tensorflow")
@@ -348,24 +365,26 @@ class DPTrain(Train):
             
         train_data=DPTrain.ase2multisys(atoms_ls,labeled=True)
         if mixed_type:
-            train_data.to("deepmd/npy/mixed", "./train_data")
+            train_data.to("deepmd/npy/mixed", str(workdir/"train_data"))
         else:
-            train_data.to("deepmd/npy", "./train_data")
+            train_data.to("deepmd/npy", str(workdir/"train_data"))
 
         
         if self.valid_data:
             valid_data = DPTrain.ase2multisys(read(self.valid_data, index=":"), labeled=True)
             if mixed_type:
-                valid_data.to("deepmd/npy/mixed", "./valid_data")
+                valid_data.to("deepmd/npy/mixed", str(workdir/"valid_data"))
             else:
-                valid_data.to("deepmd/npy", "./valid_data")
-            valid_data = _get_system_path("./valid_data")
+                valid_data.to("deepmd/npy", str(workdir/"valid_data"))
+            valid_data = _get_system_path(str(workdir/"valid_data"))
         else:
             valid_data = None
             
         # auto prob style
         auto_prob_str = "prob_sys_size"
         
+        
+        config = self._process_script(finetune_mode=finetune_mode)
         config = DPTrain.write_data_to_input_script(
             config,
             _get_system_path("./train_data"),
@@ -376,18 +395,18 @@ class DPTrain(Train):
         config["training"]["disp_file"] = "lcurve.out"
 
 
-        # open log
-        fplog = open(self.log_file, "w")
         
-        def clean_before_quit():
-            fplog.close()
-        with open(self.train_script_name, "w") as fp:
+        with open(workdir / self.train_script_name, "w") as fp:
             json.dump(config, fp, indent=4)
 
         if self.optional_files is not None:
             for f in self.optional_files:
-                Path(f.name).symlink_to(f)
+                Path(workdir / f.name).symlink_to(f)
             
+        # link model path
+        #Path(workdir / self.model_path.name ).symlink_to(self.model_path)
+        if self.model_path is not None and finetune_mode:
+            Path(workdir / self.model_path.name ).symlink_to(self.model_path)
         command = DPTrain._make_train_command(
             dp_command,
             self.train_script_name,
@@ -398,6 +417,11 @@ class DPTrain(Train):
             train_args,
             )
 
+        cwd=os.getcwd()
+        os.chdir(workdir)
+        fplog = open(self.log_file, "w")
+        def clean_before_quit():
+            fplog.close()
         ret, out, err = run_command(command,raise_error=False, try_bash=False, interactive=False)
         if ret != 0:
             clean_before_quit()
@@ -450,7 +474,8 @@ class DPTrain(Train):
         fplog.write("#=================== freeze std err ===================\n")
         fplog.write(err)
         clean_before_quit()
-        return Path(self.model_file).resolve(),Path(self.log_file).resolve(),err
+        os.chdir(cwd)
+        return Path(workdir / self.model_file).resolve(),Path(workdir / self.log_file).resolve(),err
         
     def test(
         self
@@ -657,20 +682,20 @@ class DPTrain(Train):
         train_args="",
         ):
         # find checkpoint
-        if impl == "tensorflow" and os.path.isfile("checkpoint"):
-            checkpoint = "model.ckpt"
-        elif impl == "pytorch" and len(glob.glob("model.ckpt-[0-9]*.pt")) > 0:
-            checkpoint = "model.ckpt-%s.pt" % max(
-                [int(f[11:-3]) for f in glob.glob("model.ckpt-[0-9]*.pt")]
-            )
-        else:
-            checkpoint = None
+        #if impl == "tensorflow" and os.path.isfile("checkpoint"):
+        #    checkpoint = "model.ckpt"
+        #elif impl == "pytorch" and len(glob.glob("model.ckpt-[0-9]*.pt")) > 0:
+        #    checkpoint = "model.ckpt-%s.pt" % max(
+        #        [int(f[11:-3]) for f in glob.glob("model.ckpt-[0-9]*.pt")]
+        #    )
+        #else:
+        #    checkpoint = None
         # case of restart
-        if checkpoint is not None:
-            command = dp_command + ["train", "--restart", checkpoint, train_script_name]
-            return command
+        #if checkpoint is not None:
+        #    command = dp_command + ["train", "--restart", checkpoint, train_script_name]
+        #    return command
         # case of init model and finetune
-        assert checkpoint is None
+        #assert checkpoint is None
         
         if finetune_mode is True and os.path.isfile(init_model):
             command = (
@@ -682,6 +707,7 @@ class DPTrain(Train):
                 str(init_model),
             ]
             + finetune_args.split()
+            + ["--use-pretrain-script"]
             )
             logging.info(f"Finetune mode: using init model {init_model}")
         else:
