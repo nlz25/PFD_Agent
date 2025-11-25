@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Literal, Optional
+from typing import Literal
 
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
