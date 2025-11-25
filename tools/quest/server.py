@@ -7,7 +7,7 @@ from matcreator.tools.quest import (
     filter_by_entropy as _filter_by_entropy,
     )
 
-QUEST_SERVER_WORK_PATH= "/tmp/quest_server",
+QUEST_SERVER_WORK_PATH= "/tmp/quest_server"
 
 
 def create_workpath(work_path=None):
@@ -20,7 +20,7 @@ def create_workpath(work_path=None):
     Returns:
         str: The path to the working directory.
     """
-    work_path = QUEST_SERVER_WORK_PATH  + f"/{time.strftime('%Y%m%d%H%M%S')}"
+    work_path = QUEST_SERVER_WORK_PATH + f"/{time.strftime('%Y%m%d%H%M%S')}"
     os.makedirs(work_path, exist_ok=True)
     os.chdir(work_path)
     print(f"Changed working directory to: {work_path}")

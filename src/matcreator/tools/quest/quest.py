@@ -43,7 +43,8 @@ def _h_filter_cpu(
     num_ref=len(dset_confs)
     if len(dset_confs) == 0:
         if chunk_size >= len(iter_confs):
-            return iter_confs
+            result = {"num_confs": len(iter_confs)}
+            return iter_confs, result
         random.shuffle(iter_confs)
         dset_confs = iter_confs[:chunk_size]
         iter_confs = iter_confs[chunk_size:]
@@ -124,7 +125,9 @@ def _h_filter_gpu(
     num_ref=len(dset_confs)
     if len(dset_confs) == 0:
         if chunk_size >= len(iter_confs):
-            return iter_confs
+            result.update({"num_confs": len(iter_confs)})
+            return iter_confs, result
+        
         random.shuffle(iter_confs)
         dset_confs = iter_confs[:chunk_size]
         iter_confs = iter_confs[chunk_size:]
@@ -191,8 +194,8 @@ def _h_filter_gpu(
 #@mcp.tool()
 #@log_step(step_name="explore_filter_by_entropy")
 def filter_by_entropy(
-    iter_confs: Union[List[str], str],
-    reference: Union[List[str], str] = [],
+    iter_confs: Union[List[Union[Path,str]], Union[Path,str]],
+    reference: Union[List[Union[Path,str]], Union[Path,str]] = [],
     chunk_size: int = 10,
     k:int=32,
     cutoff:float = 5.0,
@@ -275,18 +278,19 @@ def filter_by_entropy(
         )
     """
     try:
-        if isinstance(iter_confs, str):
-            iter_confs = read(iter_confs, index=":")
-        elif isinstance(iter_confs, list) and all(isinstance(p, str) for p in iter_confs):
+        #if isinstance(iter_confs, str):
+        #    iter_confs = read(iter_confs, index=":")
+        if isinstance(iter_confs, list):# and all(isinstance(p, str) for p in iter_confs):
             iter_confs = [read(p, index=":") for p in iter_confs]
             iter_confs = [atom for sublist in iter_confs for atom in sublist] # flatten
+        else:
+            iter_confs = read(iter_confs, index=":")
         
-        if isinstance(reference, str):
+        if isinstance(reference, (Path,str)):
             reference = read(reference, index=":")
-        elif isinstance(reference, list) and all(isinstance(p, str) for p in reference):
+        elif isinstance(reference, list):
             reference = [read(p, index=":") for p in reference]
             reference = [atom for sublist in reference for atom in sublist] # flatten
-        
         try:
             import torch
             logging.info("Using torch entropy calculation")

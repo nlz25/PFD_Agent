@@ -4,7 +4,7 @@ from google.adk.tools.mcp_tool import MCPToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
 from google.genai import types
 from dp.agent.adapter.adk import CalculationMCPToolset
-import os, json
+import os
 from matcreator.tools.log import after_tool_log_callback
 
 from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL, BOHRIUM_USERNAME, BOHRIUM_PASSWORD, BOHRIUM_PROJECT_ID
@@ -29,12 +29,14 @@ Must‑follow sequence
 - check_abacus_input to validate inputs BEFORE any calculation submission.
 - Then run exactly ONE property tool per step (submission is asynchronous).
 - collect_abacus_*_results AFTER the corresponding calculation completes.
-- When you finish your task, ALWAYS end with: "Task complete. Transferring control back to root_agent." Then call transfer_to_agent('root_agent').
+
+
 
 Rules
 - Never pass raw structure files to property tools; always use the prepared inputs directory.
 - Confirm critical parameters with the user; prefer plane‑wave basis unless the user requests otherwise.
 - If inputs are missing or invalid, stop and request the minimal fix.
+- Never invent tools; only call from the allowlist.
 
 Outputs
 - Report absolute paths and essential metrics (e.g., final energy). Keep summaries tight and actionable.
@@ -59,7 +61,7 @@ executor = {
                 "password": bohrium_password,
                 "program_id": bohrium_project_id,
                 "input_data": {
-                    "image_name": "registry.dp.tech/dptech/dp/native/prod-22618/abacus-agent-tools:v0.2",
+                    "image_name": "registry.dp.tech/dptech/dp/native/prod-26745/matcreator:0.0.1",
                     "job_type": "container",
                     "platform": "ali",
                     "scass_type": "c32_m64_cpu",
