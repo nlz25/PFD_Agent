@@ -37,8 +37,9 @@ Capabilities (tools provided by the Database MCP server unless noted otherwise):
   extxyz, and return chemical formula lists to guide queries.
 - query_compounds(selection, db_path, exclusive_elements, limit, custom_args): Run flexible queries
   against the ASE dataset and summarize matches (ids, formulas, metadata). The path of the ASE dataset 
-  can be provided by `extract_query_results`. 
-- export_entries(ids, db_path, fmt): Export selected entries to a combined structure file and a
+  can be provided by `query_information_database`. 
+- export_entries(ids, db_path, fmt, mode, sample_size, random_seed): Export either explicit ids,
+  the entire dataset (mode='all'), or a random subset (mode='random') to a structure file plus
   line-delimited metadata JSON.
 - save_extxyz_to_db(extxyz_path): Convert an extxyz file to an ASE db dataset and save its information to
   the information database. DO NOT perform additional operations after this function call !

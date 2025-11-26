@@ -118,30 +118,6 @@ def validate_sql_code_query(sql_code: str) -> Dict[str, Any]:
     except ValueError as exc:
         return {"valid": False, "sql": "", "error": str(exc)}
 
-
-# deprecated
-def query_information_database_tmp(sql_code:str)->Tuple[str, Dict[str, Any]]:
-    """
-    Execute sql command on the information database. The function return a tuple of three elements:
-        Args:
-            sql_code(str): A validated single SELECT statement (no mutation keywords).
-        Returns:
-            str: The descriptive string of the query result in a markdown table format. Directly return it to the user.
-            int: The number of query results.
-            list: A list containing the query results. NOTE: Don't parse it just pass it to the function `extract_query_results`
-        """
-
-    result_list = _query_information_database(sql_code, info_db_path)
-
-    # The summery string is a markdown table, which contains the 
-    # id, Elements, Type, Fields, Entries and Source, Date and Path is omitted.
-    summary_str = "# Summary of Query Results\n\n"
-    summary_str += "You can specifically request entries by their IDs.\n\n"
-    summary_str += "| id | Elements | Type | Fields | Entries |\n"
-    summary_str += "|----|----------|------|--------|---------|\n"
-    for row in query_result["results"]:
-        summary_str += f"| {row['ID']} | {row['Elements']} | {row['Type']} | {row['Fields']} | {row['Entries']} |\n"
-    return summary_str, query_result
          
 @mcp.tool()
 def query_information_database(sql_code: str) -> Dict[str, Any]:
@@ -169,41 +145,13 @@ def query_information_database(sql_code: str) -> Dict[str, Any]:
             "Entries": row["Entries"],
             "Path": row["Path"],
         }
-        for row in query_result["results"]
+        for row in query_result#["results"]
     ]
     return {
         "query": sql_code.strip(),
         "count": len(dataset_summaries),
         "datasets": dataset_summaries,
     }
-
-    for row in result_list:
-        summary_str += f"| {row['id']} | {row['Elements']} | {row['Type']} | {row['Fields']} | {row['Entries']} |\n"
-    return summary_str, len(result_list), result_list
-         
-@mcp.tool()
-def extract_query_results(id_list:List[int], query_results:list) -> None | Dict[str, Any]:
-    """
-    Extract specific items by the `id_list` from `query_results`, if `query_results` 
-    is empty or no id matches, return None.
-        Args: 
-            id_list(List[int]): The list of ids specified by the user.
-            query_results(list): Query results returned by query_information_database.
-        Returns:
-            dict: A dict which containing the results extracted from `query_results` list.
-    """
-    if len(query_results) == 0:
-        return None
-    result = {key:[] for key in query_results[0].keys()}
-    all_the_ids = [item["id"] for item in query_results]
-    for a in id_list:
-        if a in all_the_ids:
-            index = all_the_ids.index(a)
-            for key in query_results[0].keys():
-                result[key].append(query_results[index][key])
-    if len(result["id"]) == 0:
-        return None 
-    return result
     
 @mcp.tool()
 def read_user_structure(
@@ -329,17 +277,34 @@ def query_compounds(
         
 @mcp.tool()        
 def export_entries(
-        ids: List[int],
-        db_path: str,
-        fmt: Literal["extxyz", "cif", "traj"] = "extxyz",
-        
+    ids: Optional[List[int]] = None,
+    db_path: str = "",
+    fmt: Literal["extxyz", "cif", "traj"] = "extxyz",
+    mode: Literal["ids", "all", "random"] = "ids",
+    sample_size: Optional[int] = None,
+    random_seed: Optional[int] = None,
     ) -> Dict[str, Any]:
-    """Export selected ASE database entries to a single structure file with summary stats."""
+    """Export ASE entries by ids, the entire dataset, or a random sample.
+
+    Args:
+        ids (List[int] | None): Specific row identifiers when ``mode='ids'``.
+        db_path (str): Absolute path to the ASE database file.
+        fmt (Literal["extxyz", "cif", "traj"]): Output structure format.
+        mode (Literal["ids", "all", "random"]): Selection strategy.
+        sample_size (int | None): Number of entries to sample when ``mode='random'``.
+        random_seed (int | None): Optional seed for deterministic sampling.
+
+    Returns:
+        Dict[str, Any]: Paths to the exported structure file and metadata JSON plus summary counts.
+    """
     return _export_entries(
-            ids,
-            db_path=db_path,
-            fmt=fmt
-        )
+        ids=ids,
+        db_path=db_path,
+        fmt=fmt,
+        mode=mode,
+        sample_size=sample_size,
+        random_seed=random_seed,
+    )
 
 if __name__ == "__main__":
     create_workpath()

@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import random
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, TypedDict, Union, Tuple, Callable
 from ase.db import connect
@@ -320,16 +321,36 @@ class ExportResult(TypedDict):
 
 #@mcp.tool()
 def export_entries(
-    ids: List[int],
-    db_path: str,
+    ids: Optional[List[int]] = None,
+    db_path: str = "",
     fmt: Literal["extxyz", "cif", "traj"] = "extxyz",
+    mode: Literal["ids", "all", "random"] = "ids",
+    sample_size: Optional[int] = None,
+    random_seed: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Export selected ASE database entries to a single structure file with summary stats."""
-    if not ids:
-        raise ValueError("ids must contain at least one entry id")
+    """Export ASE database entries with flexible selection strategies.
+
+    Args:
+        ids: Explicit entry ids (required when ``mode='ids'``).
+        db_path: Absolute path to the ASE database file.
+        fmt: Output structure format.
+        mode: Selection strategy: ``'ids'`` (default), ``'all'`` datasets, or ``'random'`` sample.
+        sample_size: Number of entries to sample when ``mode='random'``.
+        random_seed: Optional seed to make random sampling reproducible.
+
+    Returns:
+        ExportResult with paths to the structure bundle, metadata JSON, and aggregate counts.
+    """
+
+    if mode not in {"ids", "all", "random"}:
+        raise ValueError("mode must be one of: 'ids', 'all', 'random'")
+    if mode == "ids" and not ids:
+        raise ValueError("Provide at least one id when mode='ids'")
+    if mode == "random" and (sample_size is None or sample_size <= 0):
+        raise ValueError("sample_size must be a positive integer when mode='random'")
 
     path = db_path
-    work_path=Path(generate_work_path())
+    work_path = Path(generate_work_path())
     work_path = work_path.expanduser().resolve()
     work_path.mkdir(parents=True, exist_ok=True)
 
@@ -338,18 +359,43 @@ def export_entries(
     total_exported = 0
 
     metadata_path = work_path / "exported_metadata.json"
+    combined_path = work_path / f"exported_structures.{fmt}"
+
     try:
         with metadata_path.open("w", encoding="utf-8") as meta_fp:
             with connect(path) as db:
-                for entry_id in ids:
-                    row = db.get(id=entry_id)
+                target_ids: Optional[List[int]] = None
+
+                if mode == "ids":
+                    target_ids = list(ids or [])
+                elif mode == "random":
+                    available_ids = [row.id for row in db.select()]
+                    if not available_ids:
+                        target_ids = []
+                    else:
+                        sample_n = min(sample_size or 0, len(available_ids))
+                        rng = random.Random(random_seed)
+                        target_ids = rng.sample(available_ids, sample_n)
+                # mode == "all" keeps target_ids as None to stream rows directly
+
+                if mode == "all":
+                    row_iter = db.select()
+                else:
+                    row_iter = (
+                        db.get(id=entry_id)
+                        for entry_id in (target_ids or [])
+                    )
+
+                for row in row_iter:
+                    if row is None:
+                        continue
                     atoms = row.toatoms()
                     atoms_collection.append(atoms)
                     formula = row.get("formula") or atoms.get_chemical_formula(empirical=True)
                     if formula:
                         formulas.add(formula)
                     record = {
-                        "id": entry_id,
+                        "id": row.id,
                         "name": row.get("name"),
                         "formula": row.get("formula"),
                         "tags": row.get("tags"),
@@ -357,8 +403,13 @@ def export_entries(
                     meta_fp.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
                     total_exported += 1
 
-        combined_filename = f"exported_structures.{fmt}"
-        combined_path = work_path / combined_filename
+        if total_exported == 0:
+            metadata_path.unlink(missing_ok=True)
+            return ExportResult(
+                output_file=Path(""),
+                metadata_file=Path(""),
+                counts={"total_exported": 0, "unique_formulas": 0},
+            )
 
         payload = atoms_collection[0] if len(atoms_collection) == 1 else atoms_collection
         write(combined_path, payload, format=fmt)
