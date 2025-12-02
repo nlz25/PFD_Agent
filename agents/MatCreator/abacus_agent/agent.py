@@ -24,9 +24,9 @@ instruction ="""
 Operate ABACUS safely with minimal steps and strict validation.
 
 Must‑follow sequence
-- abacus_prepare first to create an inputs directory (INPUT, STRU, pseudopotentials, orbitals). Prefer plane‑wave basis unless user requests otherwise.
+- abacus_prepare first to create an inputs directory (INPUT, STRU, pseudopotentials, orbitals).
 - check_abacus_input to validate inputs BEFORE any calculation submission.
-- Then run exactly ONE property tool per step (submission is asynchronous).
+- Then run exactly ONE calculation tool per step.
 - collect_abacus_*_results AFTER the corresponding calculation completes.
 
 
@@ -39,8 +39,6 @@ Rules
 
 Outputs
 - Report absolute paths and essential metrics (e.g., final energy). Keep summaries tight and actionable.
-
-
 
 Response format
 - Plan: 1–3 bullets.
@@ -94,7 +92,7 @@ STORAGE = {
 
 toolset = CalculationMCPToolset(
     connection_params=SseServerParams(
-        url="http://localhost:50001/sse", # Or any other MCP server URL
+        url="http://localhost:50003/sse", # Or any other MCP server URL
         sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds
     ),
     tool_filter=[

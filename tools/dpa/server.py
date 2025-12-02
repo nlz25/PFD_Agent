@@ -247,7 +247,7 @@ def ase_calculation(
         head: Optional[str] = None,
             ) -> Dict[str, Any]:
     """
-        Perform energy and force (and stress) calculation on given structures using a Deep Potential model.
+        Labeling energy and force (and stress)on given structures using a Deep Potential model.
 
         Parameters
         - structure_path: List[Path] | Path

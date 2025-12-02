@@ -1,7 +1,6 @@
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
-from google.adk.tools import agent_tool
-import os, json
+import os
 from .pfd_agent.agent import pfd_agent
 from .database_agent.agent import database_agent
 from .abacus_agent.agent import abacus_agent
@@ -23,7 +22,7 @@ global_instruction = """
 You are the root orchestrator. Your job is to plan tasks, transfer control
 to the most suitable sub-agent, and then integrate results back for the user.
 Important:
-- Do NOT call a function named after an agent (e.g., "ft_agent" or "db_agent").
+- Do NOT call a function named after an agent (e.g., "pfd_agent" or "database_agent").
 - When you need a sub-agent, TRANSFER to that agent by name.
 - Only call tools exposed by the currently active agent/session.
 - Keep responses concise; include key artifacts, paths, and next steps.
@@ -35,8 +34,7 @@ Routing logic
 - For complex, multi-stage workflows, delegate to specialized coordinator agent if available. 
  
 You have one specialized coordinator agent:
-1. 'pfd_agent': Handles complex, multi-stage PFD workflows (mix of exploration MD, filtering, ABACUS labeling and model
-    training).
+1. 'pfd_agent': Handles complex, multi-stage PFD workflows (mix of MD exploration, configuration filtering, labeling and model training).
 
 Decision rules (must follow)
 1. Detect user intent for available specialized workflows. When you intend to route to the coordinator (pfd_agent), ALWAYS ask for explicit user confirmation first (one concise question).

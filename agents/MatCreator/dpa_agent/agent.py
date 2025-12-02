@@ -162,7 +162,8 @@ toolset = CalculationMCPToolset(
         #"list_calculators", # maybe a seperate implementation later
         "run_molecular_dynamics",
         "optimize_structure",
-        "get_base_model_path"
+        "get_base_model_path",
+        "ase_calculation",
     ],
     #executor_map = EXECUTOR_MAP,
     executor=executor["local"],
