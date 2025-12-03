@@ -11,6 +11,7 @@ from matcreator.tools.log import (
     )
 from ..abacus_agent.agent import abacus_agent
 from ..dpa_agent.agent import dpa_agent
+from ..structure_agent.agent import structure_agent
 import os
 from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL, BOHRIUM_USERNAME, BOHRIUM_PASSWORD, BOHRIUM_PROJECT_ID
 
@@ -28,11 +29,12 @@ The main coordinator agent for PFD (pretrain-finetuning-distillation) workflow. 
 instruction ="""
 Mission
 - Orchestrate the standard PFD workflow with minimal, safe steps and clear outputs:
-    MD exploration → data curation (entropy selection) → labeling → model training.
+    building structure → MD exploration → data curation (entropy selection) → labeling → model training.
 
 Before any actually calculation, you must verify with user the following critical parameters:
 - General: task type (fine-tuning or distillation), max PFD iteration numbers (default 1) and convergence criteria for model training (e.g., 0.002 eV/atom)
-- MD: ensemble (NVT/NPT/NVE), temperature(s), total simulation time (ps), timestep/expected steps, save interval steps.
+- Structure building: crystal structure(s) or input structure file(s), supercell size(s), perturbation parameters (number, cell/atom displacement magnitudes).
+- MD: perturbation number, ensemble (NVT/NPT/NVE), temperature(s), total simulation time (ps), timestep/expected steps, save interval steps.
 - Curation: max_sel (and chunk_size if applicable).
 - For fine-tuning, verify following:
     - ABACUS labeling: kspacing (default 0.14).
@@ -45,13 +47,12 @@ Before any actually calculation, you must verify with user the following critica
 You have two specialized sub‑agents: 
 1. 'dpa_agent_pfd': Handles MD simulation, LABELING and TRAINING with DPA model. Delegate to it for these.
 2. 'abacus_agent_pfd': Handles DFT calculations using ABACUS software. Delegate to it for these.
-
-Never invent tools!
+3. 'structure_agent_pfd': Handles structure building, perturbation, and entropy-based selection. Delegate to it for these.
 
 Workflow rules
 - Create a workflow log for NEW PFD runs; show the initial plan; refine via update_workflow_log_plan until agreed. 
-- Read the workflow log via 'read_workflow_log' everytime before delegating to sub-agents.
-- In each step, either delegate to one sub-agent or execute a tool in this agent; do not mix.
+- Read the workflow log via 'read_workflow_log' before delegating to a sub-agent.
+- In each step, delegate to one sub-agent.
 - After each step, summarize artifacts with absolute paths and key metrics; propose the next step.
 - Repeat the PFD cycle until reaching max iterations or convergence criteria for model training.
 
@@ -105,20 +106,8 @@ STORAGE = {
     }
 }
 
-
-# entropy filter toolset
-selector_toolset = MCPToolset(
-    connection_params=SseServerParams(
-        url="http://localhost:50004/sse", # Or any other MCP server URL
-        sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds
-    ),
-    tool_filter=[
-        "filter_by_entropy",
-    ],
-)
-
 allowed = {"abacus_prepare", "abacus_calculation_scf", "collect_abacus_scf_results",
-           "training","run_molecular_dynamics","filter_by_entropy"}
+           "training","run_molecular_dynamics","filter_by_entropy","perturb_atoms"}
 name_map={
     "abacus_prepare":"labeling_abacus_scf_preparation",
     "abacus_calculation_scf":"labeling_abacus_scf_calculation",  
@@ -148,6 +137,14 @@ dpa_agent= dpa_agent.clone(
         },
 )
 
+structure_agent = structure_agent.clone(
+    update={
+        "name": "structure_agent_pfd",
+        "after_tool_callback": after_tool_callback
+        },
+)
+
+
 pfd_agent = LlmAgent(
     name='pfd_agent',
     model=LiteLlm(
@@ -158,7 +155,7 @@ pfd_agent = LlmAgent(
     description=description,
     instruction=instruction,
     tools=[
-        selector_toolset,
+        #selector_toolset,
         create_workflow_log,
         update_workflow_log_plan,
         read_workflow_log,
@@ -168,5 +165,6 @@ pfd_agent = LlmAgent(
     sub_agents=[
         abacus_agent,
         dpa_agent,
+        structure_agent
     ]
 )
