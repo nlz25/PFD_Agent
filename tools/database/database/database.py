@@ -199,7 +199,7 @@ def read_user_structure(
 def query_compounds(
     selection: Union[dict,int,str,List[Union[str,Tuple]]],
     db_path: str,
-    exclusive_elements: Union[str, List[str]] = None,
+    #exclusive_elements: Union[str, List[str]] = None,
     limit: Optional[int] = None,
     custom_args: Dict[str, Any] = {},
 ) -> Dict[str, Any]:
@@ -223,10 +223,6 @@ def query_compounds(
         
         db_path (str):
             Path to the ASE database.
-
-        exclusive_elements (str | set[str] | None):
-            Optional post-filtering by chemical elements. Only entries whose structures within the chemical space specified can
-            be included in the results. examples: "Ba,Ti,O" or {"Ba", "Ti", "O"}.
         
         limit (int | None):
             Maximum number of rows to return (applied during ASE selection).
@@ -282,13 +278,13 @@ def query_compounds(
     seen_ids: set[int] = set()
     formulas: set[str] = set()
     try:
-        if exclusive_elements:
-            filter = _exclusive_elements(exclusive_elements)
-        else:
-            filter = None
+        #if exclusive_elements:
+        #    filter = _exclusive_elements(exclusive_elements)
+        #else:
+        #    filter = None
             
         with connect(path) as db:
-            for row in db.select(selection,filter=filter,
+            for row in db.select(selection,#filter=filter,
                                  limit=limit,**custom_args):
                 if row.id in seen_ids:
                     continue

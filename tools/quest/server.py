@@ -3,6 +3,12 @@ import os
 import argparse
 from typing import Union, List
 import time
+from matcreator.tools.structure_builder import (
+    build_bulk_crystal as _build_bulk_crystal,
+    build_supercell as _build_supercell,
+    inspect_structure as _inspect_structure,
+    perturb_atoms as _perturb_atoms,
+)
 from matcreator.tools.quest import (
     filter_by_entropy as _filter_by_entropy,
     )
@@ -174,6 +180,162 @@ def filter_by_entropy(
             max_sel=max_sel,
         )
     
+@mcp.tool()
+def build_bulk_crystal(
+                formula: str,
+                crystal_structure: str,
+                a: float | None = None,
+                c: float | None = None,
+                covera: float | None = None,
+                u: float | None = None,
+                spacegroup: int | None = None,
+                basis: List[List[float]] | None = None,
+                orthorhombic: bool = False,
+                cubic: bool = False,
+                size: Union[int, List[int], List[List[int]]] = 1,
+                vacuum: float | None = None,
+                output_format: str = "extxyz",
+        ):
+        """Build and save a bulk crystal structure using ASE. It constructs a
+        bulk crystal from a chemical formula and crystal prototype, optionally
+        expands it to a supercell, and writes the result to disk.
+
+        Key arguments
+        - formula: Chemical formula understood by ASE (e.g. "Si", "Al2O3").
+        - crystal_structure: Prototype string for ASE `bulk`, such as
+            "fcc", "bcc", "hcp", "rocksalt", "zincblende", etc.
+        - a, c, covera, u, spacegroup, basis: Optional lattice parameters and
+            internal coordinates passed directly to ASE `bulk`.
+        - orthorhombic, cubic: Geometry flags forwarded to ASE `bulk`.
+        - size: Supercell expansion; can be an integer N (NxNxN), a 3-int list
+            like [2,2,1], or a 3x3 integer matrix for a general supercell.
+        - vacuum: Extra vacuum padding (in Å) added via `atoms.center`.
+        - output_format: Output file format, typically "extxyz" (default),
+            "xyz", "cif", or "vasp".
+
+        Returns
+        - A dictionary with:
+            - status: "success" or "error".
+            - message: Short description of the outcome.
+            - structure_path: Absolute path to the written structure file
+                (empty string on error).
+            - chemical_formula: Empirical formula of the generated structure.
+            - num_atoms: Number of atoms in the final supercell.
+            - cell: 3x3 cell matrix as a nested list.
+            - pbc: Periodic boundary condition flags as a length-3 list.
+
+        Example
+        - Create a 2x2x2 fcc Al supercell and save to extxyz:
+                build_bulk_crystal(formula="Al", crystal_structure="fcc", size=[2,2,2])
+        """
+
+        return _build_bulk_crystal(
+                formula=formula,
+                crystal_structure=crystal_structure,
+                a=a,
+                c=c,
+                covera=covera,
+                u=u,
+                spacegroup=spacegroup,
+                basis=basis,
+                orthorhombic=orthorhombic,
+                cubic=cubic,
+                size=size,
+                vacuum=vacuum,
+                output_format=output_format,
+        )
+
+@mcp.tool()
+def build_supercell(
+        input_structure: str,
+        size: Union[int, List[int], List[List[int]]] = 1,
+        output_format: str = "extxyz",
+):
+        """Build a supercell from an input structure file and save it.
+
+        Parameters
+        - input_structure: Path to the input structure file (or list of paths).
+        - size: Supercell expansion. Either an int (N -> N x N x N), a 3-int
+            list/tuple ([nx,ny,nz]), or a 3x3 integer matrix for arbitrary
+            supercell transforms.
+        - output_format: Output format, e.g. "extxyz", "xyz", "cif", "vasp".
+
+        Returns:
+        - A dictionary with:
+            - status: "success" or "error".
+            - message: Short description of the outcome.
+            - structure_path: Absolute path to the written structure file
+                (empty string on error).
+            - chemical_formula: Empirical formula of the generated structure.
+            - num_atoms: Number of atoms in the final supercell.
+            - cell: 3x3 cell matrix as a nested list.
+            - pbc: Periodic boundary condition flags as a length-3 list.
+        """
+
+        return _build_supercell(
+                input_structure=input_structure,
+                size=size,
+                output_format=output_format,
+        )
+
+@mcp.tool()
+def perturb_atoms(
+        structure_path: Union[str, List[str]],
+        pert_num: int,
+        cell_pert_fraction: float,
+        atom_pert_distance: float,
+        atom_pert_style: str = "normal",
+        atom_pert_prob: float = 1.0,
+        output_format: str = "extxyz",
+        output_path: str | None = None,
+):
+        """Generate perturbed configurations from a structure file and write them out.
+
+        Arguments
+        - structure_path: ASE-readable structure path (or list with the first entry used).
+        - pert_num: Number of perturbed structures to generate.
+        - cell_pert_fraction: Fractional cell distortion magnitude.
+        - atom_pert_distance: Maximum per-atom displacement (Å).
+        - atom_pert_style: Displacement distribution (`normal`, `uniform`, `const`).
+        - atom_pert_prob: Probability that each atom is perturbed.
+        - output_format: Output format such as `extxyz` (default), `xyz`, `cif`, `vasp`.
+        - output_path: Optional explicit output file path; auto-generated when omitted.
+
+        Returns
+        - A dictionary with:
+            -status: "success" or "error".
+            -message: Short description of the outcome.
+            -structure_path: Absolute path to the written structure file
+                (empty string on error).
+            -num_structures: Number of perturbed structures generated.
+            -num_atoms_per_structure: Number of atoms in each perturbed structure.
+        """
+
+        if isinstance(structure_path, list):
+                structure_path = structure_path[0]
+
+        return _perturb_atoms(
+                structure_path=structure_path,
+                pert_num=pert_num,
+                cell_pert_fraction=cell_pert_fraction,
+                atom_pert_distance=atom_pert_distance,
+                atom_pert_style=atom_pert_style,
+                atom_pert_prob=atom_pert_prob,
+                output_format=output_format,
+                output_path=output_path,
+        )
+
+@mcp.tool()
+def inspect_structure(
+    structure_path: str,
+):
+    """Read an ASE-compatible structure file and report metadata such as frame count and properties.
+    """
+
+    return _inspect_structure(
+        structure_path=structure_path,
+    )
+
 
 if __name__ == "__main__":
     create_workpath()

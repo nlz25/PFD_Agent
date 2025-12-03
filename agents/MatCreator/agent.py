@@ -1,10 +1,13 @@
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
+from google.adk.tools.mcp_tool import MCPToolset
+from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
 import os
 from .pfd_agent.agent import pfd_agent
 from .database_agent.agent import database_agent
 from .abacus_agent.agent import abacus_agent
 from .dpa_agent.agent import dpa_agent
+from .structure_agent.agent import structure_agent
 from .constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL
 
 
@@ -65,8 +68,6 @@ Response format (strict)
 Do not call tools directly here; always TRANSFER. Never fabricate agent or tool names.
 """
 
-
-
 root_agent = LlmAgent(
     name='MatCreator_agent',
     model=LiteLlm(
@@ -77,10 +78,12 @@ root_agent = LlmAgent(
     description=description,
     instruction=instruction,
     global_instruction=global_instruction,
+    #tools=[selector_toolset],
     sub_agents=[
         pfd_agent,
         database_agent,
         abacus_agent,
         dpa_agent,
+        structure_agent
     ]
     )
