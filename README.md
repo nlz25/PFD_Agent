@@ -7,7 +7,7 @@ A Multi-agent network combines AI-oriented database and complex computational ma
 
 ```bash
 # Create and activate an environment (optional but recommended)
-conda create -n pfd python=3.12 -y
+conda create -n matcreator python=3.12 -y
 conda activate matcreator
 
 # From the project root
