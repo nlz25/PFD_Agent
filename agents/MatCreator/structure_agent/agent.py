@@ -63,9 +63,9 @@ Operating rules
 
 Response format
 - Plan: 1–3 bullets describing the immediate next step(s).
-- Action: the exact tool you will call in this agent context.
+- Action: the exact tool you will call.
 - Result: brief summary with key outputs and absolute paths.
-- Next: the immediate follow-up or final recap.
+- Next: the immediate follow-up or final recap. Transfer back to parent agent if done.
 """
 
 
@@ -83,6 +83,8 @@ structure_agent = Agent(
         base_url=model_base_url,
         api_key=model_api_key
     ),
+    disallow_transfer_to_parent=True,
+    disallow_transfer_to_peers=True,
     description=description,
     instruction=instruction,
     tools=[

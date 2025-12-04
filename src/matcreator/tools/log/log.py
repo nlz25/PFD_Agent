@@ -74,10 +74,11 @@ def _save_log(data: Dict[str, Any], path: Optional[str] = None) -> str:
     return str(p)
 
 
-#@mcp.tool()
 def create_workflow_log(
-    workflow_name: Literal["pfd_finetune","pfd_distillation"],
+    workflow_name: str,#Literal["pfd_finetune","pfd_distillation"],
+    task_instructions: Optional[Dict[str, Any]] = {},
     additional_info: Optional[Dict[str,Any]] = None,
+    
 ):
     """Initialize a workflow log and update the LOG_PATH environment variable.
 
@@ -89,7 +90,7 @@ def create_workflow_log(
     target = _timestamped_path(base)
     data = {
         "workflow_name": workflow_name,
-        "default_instructions": TASK_INSTRUCTIONS.get(workflow_name, ""),
+        "default_instructions": task_instructions.get(workflow_name, ""),
         "created_at": _iso_now(),
         "steps": [],
     }
@@ -102,11 +103,10 @@ def create_workflow_log(
         "message": f"Workflow log created: {saved_path}",
         "path": saved_path,
         "workflow_name": workflow_name,
-        "default_instructions": TASK_INSTRUCTIONS.get(workflow_name, ""),
+        "default_instructions": task_instructions.get(workflow_name, ""),
         "env": {ENV_LOG_PATH: saved_path},
     }
 
-#@mcp.tool()
 def update_workflow_log_plan(
     planning_details: str="No details provided."    
 ):

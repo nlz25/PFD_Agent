@@ -1,9 +1,9 @@
 from google.adk.agents import  LlmAgent
 from google.adk.models.lite_llm import LiteLlm
-from google.adk.tools.mcp_tool import MCPToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
+from typing import Literal, Optional, Dict, Any
 from matcreator.tools.log import (
-    create_workflow_log,
+    create_workflow_log as _create_workflow_log,
     update_workflow_log_plan,
     read_workflow_log,
     resubmit_workflow_log,
@@ -67,44 +67,52 @@ Response format (strict)
 - Next: the immediate next step or a final recap with follow‑ups.
 """
 
-executor = {
-    "bohr": {
-        "type": "dispatcher",
-        "machine": {
-            "batch_type": "Bohrium",
-            "context_type": "Bohrium",
-            "remote_profile": {
-                "email": bohrium_username,
-                "password": bohrium_password,
-                "program_id": bohrium_project_id,
-                "input_data": {
-                    "image_name": "registry.dp.tech/dptech/dp/native/prod-26745/matcreator:0.0.1",
-                    "job_type": "container",
-                    "platform": "ali",
-                    "scass_type": "1 * NVIDIA V100_16g",
-                },
-            },
-        }
-    },
-    "local": {"type": "local",}
-}
+PFD_FT_INSTRUCTIONS = """
+The PFD fine-tuning workflow have four major steps: 
+1) Structure building: build initial structures or supercells as needed.
+2) Exploration: generate new frames using molecular dynamics (MD) simulations. 
+3) Data curation: select informative frames from the MD trajectory using entropy-based selection. You should verify the selection parameters such as chunk size, number of selections, k-nearest neighbors, cutoff distance, and entropy bandwidth before running the selection.
+4) Data labeling: perform energy and force calculations for the selected frames, using DFT calculation (e.g. ABACUS). You should verify the DFT parameters such as pseudopotentials, basis set, k-point sampling, energy cutoff, and convergence criteria before running DFT calculations.
+5) Model training: fine-tuning a machine learning force fields using the labeled data. You should verify the training parameters such as number of epochs, and validation split before running the training.
 
-EXECUTOR_MAP = {
-    "run_molecular_dynamics": executor["bohr"],
-    "optimize_structure": executor["bohr"],
-    "training": executor["bohr"],
-    "ase_calculation": executor["bohr"],
-}
+In theory, you can run multiple iterations of the above steps to gradually improve the model performance. However, in practice, a single iteration is often sufficient to achieve good results.
+Notes: you need to verify the model style, base model path, and training strategy before training. Place them in the log header if needed.
+"""
 
-STORAGE = {
-    "type": "https",
-    "plugin":{
-        "type": "bohrium",
-        "username": bohrium_username,
-        "password": bohrium_password,
-        "project_id": bohrium_project_id,
-    }
+PFD_DIST_INSTRUCTIONS = """
+The PFD distillation workflow have following major steps:
+1) Structure building: build initial structures or supercells as needed.
+2) Exploration: generate new frames using molecular dynamics (MD) simulations.
+3) Data curation: select informative frames from the MD trajectory using entropy-based selection. You should verify the selection parameters such as chunk size, number of selections, k-nearest neighbors, cutoff distance, and entropy bandwidth before running the selection.
+4) Data labeling: perform energy and force calculations for the selected frames using ASE calculators (e.g., DPA). You should verify the model path, and any additional calculator parameters before running the calculations.
+5) Model training: train a machine learning force fields from scratch (Not fine-tuning!) using the labeled data. You should verify the training parameters such as number of epochs, and validation split before running the training.
+
+In theory, you can run multiple iterations of the above steps to gradually improve the model performance. However, in practice, a single iteration is often sufficient to achieve good results.
+Notes: you need to verify the model style, base model path, and training strategy before training. Place them in the log header if needed.
+"""
+
+TASK_INSTRUCTIONS = {
+    "pfd_finetune":PFD_FT_INSTRUCTIONS,
+    "pfd_distillation":PFD_DIST_INSTRUCTIONS,
 }
+def create_workflow_log(
+    workflow_name: Literal["pfd_finetune","pfd_distillation"],
+    additional_info: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Initialize a PFD workflow log and update the LOG_PATH environment variable.
+    
+    Args:
+        workflow_name: Name of the workflow, either "pfd_finetune" or "pfd_distillation".
+        additional_info: Optional additional information to include in the log. Must be dict if provided.
+
+    - Uses a timestamped file name to avoid clobbering.
+    - Stores absolute path in env LOG_PATH for subsequent updates.
+    """
+    return _create_workflow_log(
+        workflow_name=workflow_name,
+        task_instructions=TASK_INSTRUCTIONS,
+        additional_info=additional_info,
+    )
 
 allowed = {"abacus_prepare", "abacus_calculation_scf", "collect_abacus_scf_results",
            "training","run_molecular_dynamics","filter_by_entropy","perturb_atoms"}
@@ -126,20 +134,23 @@ def after_tool_callback(tool,args,tool_context,tool_response):
 abacus_agent= abacus_agent.clone(
     update={
         "name": "abacus_agent_pfd",
-        "after_tool_callback": after_tool_callback
+        "after_tool_callback": after_tool_callback,
+        "disallow_transfer_to_parent": False
         },
 )
 
 dpa_agent= dpa_agent.clone(
     update={
         "name": "dpa_agent_pfd",
-        "after_tool_callback": after_tool_callback
+        "after_tool_callback": after_tool_callback,
+        "disallow_transfer_to_parent": False
         },
 )
 
 structure_agent = structure_agent.clone(
     update={
         "name": "structure_agent_pfd",
+        "disallow_transfer_to_parent": False,
         "after_tool_callback": after_tool_callback
         },
 )
