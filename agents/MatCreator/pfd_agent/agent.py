@@ -1,6 +1,7 @@
 from google.adk.agents import  LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
+from google.adk.tools.mcp_tool import MCPToolset
 from typing import Literal, Optional, Dict, Any
 from matcreator.tools.log import (
     create_workflow_log as _create_workflow_log,
@@ -29,32 +30,30 @@ The main coordinator agent for PFD (pretrain-finetuning-distillation) workflow. 
 instruction ="""
 Mission
 - Orchestrate the standard PFD workflow with minimal, safe steps and clear outputs:
-    building structure → MD exploration → data curation (entropy selection) → labeling → model training.
+    building structure → MD exploration → data curation (entropy selection) → labeling → model training → check convergence.
 
 Before any actually calculation, you must verify with user the following critical parameters:
 - General: task type (fine-tuning or distillation), max PFD iteration numbers (default 1) and convergence criteria for model training (e.g., 0.002 eV/atom)
-- Structure building: crystal structure(s) or input structure file(s), supercell size(s), perturbation parameters (number, cell/atom displacement magnitudes).
+- Structure building: crystal structure(newly built or given structure file), supercell size(s), perturbation parameters (number, cell/atom displacement magnitudes).
 - MD: perturbation number, ensemble (NVT/NPT/NVE), temperature(s), total simulation time (ps), timestep/expected steps, save interval steps.
 - Curation: max_sel (and chunk_size if applicable).
 - For fine-tuning, verify following:
-    - ABACUS labeling: kspacing (default 0.14).
+    - ABACUS labeling: kspacing (default 0.2).
 - For distillation, verify following:
     - DPA labeling: head (for multi-head models, default "MP_traj_v024_alldata_mixu").
 - Training: target epochs (or equivalent); training-testing data split ratio.
 - Interaction mode: chat (check with user for each step) or non-interactive batch (default, proceed if no error occurs).
 
-
-You have two specialized sub‑agents: 
+You have three specialized sub‑agents: 
 1. 'dpa_agent_pfd': Handles MD simulation, LABELING and TRAINING with DPA model. Delegate to it for these.
 2. 'abacus_agent_pfd': Handles DFT calculations using ABACUS software. Delegate to it for these.
 3. 'structure_agent_pfd': Handles structure building, perturbation, and entropy-based selection. Delegate to it for these.
 
 Workflow rules
 - Create a workflow log for NEW PFD runs; show the initial plan; refine via update_workflow_log_plan until agreed. 
-- Read the workflow log via 'read_workflow_log' before delegating to a sub-agent.
-- In each step, delegate to one sub-agent.
+- Always call 'read_workflow_log' before delegating task to a sub-agent.
 - After each step, summarize artifacts with absolute paths and key metrics; propose the next step.
-- Repeat the PFD cycle until reaching max iterations or convergence criteria for model training.
+- Repeat the cycle until reaching max iterations or convergence criteria for model training. 
 
 Failure and resume
 - If a tool fails or is unavailable, show the exact error and propose a concrete alternative. Check with the user before proceeding.
@@ -74,6 +73,7 @@ The PFD fine-tuning workflow have four major steps:
 3) Data curation: select informative frames from the MD trajectory using entropy-based selection. You should verify the selection parameters such as chunk size, number of selections, k-nearest neighbors, cutoff distance, and entropy bandwidth before running the selection.
 4) Data labeling: perform energy and force calculations for the selected frames, using DFT calculation (e.g. ABACUS). You should verify the DFT parameters such as pseudopotentials, basis set, k-point sampling, energy cutoff, and convergence criteria before running DFT calculations.
 5) Model training: fine-tuning a machine learning force fields using the labeled data. You should verify the training parameters such as number of epochs, and validation split before running the training.
+   Always fine-tuning the base model with DFT data collected in ALL iterations.  
 
 In theory, you can run multiple iterations of the above steps to gradually improve the model performance. However, in practice, a single iteration is often sufficient to achieve good results.
 Notes: you need to verify the model style, base model path, and training strategy before training. Place them in the log header if needed.
@@ -131,11 +131,28 @@ def after_tool_callback(tool,args,tool_context,tool_response):
         )
 
 
+toolset = MCPToolset(
+    connection_params=SseServerParams(
+        url="http://localhost:50003/sse", # Or any other MCP server URL
+        sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds
+    ),
+    tool_filter=[
+            "abacus_prepare_batch",
+            "check_abacus_inputs_batch",
+            "abacus_modify_input_batch",
+            "abacus_modify_stru_batch",
+            "abacus_calculation_scf_batch",
+            "collect_abacus_scf_results_batch"
+            ],
+)
+
+
 abacus_agent= abacus_agent.clone(
     update={
         "name": "abacus_agent_pfd",
         "after_tool_callback": after_tool_callback,
-        "disallow_transfer_to_parent": False
+        "disallow_transfer_to_parent": False,
+        "tools":[toolset]
         },
 )
 
@@ -166,13 +183,14 @@ pfd_agent = LlmAgent(
     description=description,
     instruction=instruction,
     tools=[
-        #selector_toolset,
         create_workflow_log,
         update_workflow_log_plan,
         read_workflow_log,
         resubmit_workflow_log,
         ],
     after_tool_callback=after_tool_callback,
+    disallow_transfer_to_peers=True,
+    #disallow_transfer_to_parent=True,
     sub_agents=[
         abacus_agent,
         dpa_agent,

@@ -9,7 +9,8 @@ dependencies = [
     "abacustest>=0.4.37",
     "bohr-agent-sdk>=0.1.101",
     "bohrium-sdk>=0.13.0",
-    "numpy>=2.3.2",
+    "numpy>=2.2.0",
     "dpdata>=0.2.25",
-    "matcreator @ git+https://github.com/nlz25/PFD_Agent.git@ruoyu-dev"
+    "matcreator @ git+https://github.com/nlz25/PFD_Agent.git@devel",    
+    "abacus @ git+https://github.com/deepmodeling/ABACUS-agent-tools.git@devel"
 ]

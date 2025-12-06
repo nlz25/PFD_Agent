@@ -90,37 +90,12 @@ STORAGE = {
     }
 }
 
-toolset = CalculationMCPToolset(
+toolset = MCPToolset(
     connection_params=SseServerParams(
         url="http://localhost:50003/sse", # Or any other MCP server URL
         sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds
-    ),
-    tool_filter=[
-        "abacus_prepare",
-        "check_abacus_inputs",
-        "abacus_modify_input",
-        "abacus_modify_stru",
-        "abacus_calculation_scf",
-        "collect_abacus_scf_results"
-    ],
-    #executor_map = EXECUTOR_MAP,
-    executor=executor["local"],
-    #storage=STORAGE,
+    )
 )
-
-
-def after_agent_cb2(callback_context):
-  print('@after_agent_cb2')
-  # ModelContent (or Content with role set to 'model') must be returned.
-  # Otherwise, the event will be excluded from the context in the next turn.
-  return types.ModelContent(
-      parts=[
-          types.Part(
-              text='Handoff: return_to_parent',
-          ),
-      ],
-  )
-
 
 abacus_agent = LlmAgent(
     name='abacus_agent',

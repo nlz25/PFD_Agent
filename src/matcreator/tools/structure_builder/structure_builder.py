@@ -472,22 +472,24 @@ def inspect_structure(
 
 		formulas = [frame.get_chemical_formula(empirical=True) for frame in frames]
 		num_atoms_per_frame = [len(frame) for frame in frames]
-		cells = [frame.cell.tolist() for frame in frames]
-		pbc_flags = [frame.get_pbc().tolist() for frame in frames]
+		#cells = [frame.cell.tolist() for frame in frames]
+		#pbc_flags = [frame.get_pbc().tolist() for frame in frames]
 		info_keys = sorted({key for frame in frames for key in frame.info.keys()})
 		array_keys = sorted({key for frame in frames for key in frame.arrays.keys()})
 
+		unique_formulas = list(sorted(set(formulas)))
+		unique_num_atoms = list(sorted(set(num_atoms_per_frame)))
 		result = {
 			"status": "success",
 			"message": f"Read {len(frames)} frame(s) from structure file.",
 			"structure_path": str(source.resolve()),
 			"num_frames": len(frames),
 			#"chemical_formula": formulas[0],
-			"chemical_formulas": formulas,
+			"chemical_formulas": unique_formulas,
 			#"num_atoms": num_atoms_per_frame[0],
-			"num_atoms_per_frame": num_atoms_per_frame,
-			"cells": cells,
-			"pbc": pbc_flags,
+			"num_atoms": unique_num_atoms,
+			#"cells": cells,
+			#"pbc": pbc_flags,
 			"info_keys": info_keys,
 			"array_keys": array_keys,
 		}
@@ -501,9 +503,9 @@ def inspect_structure(
 			#"chemical_formula": "",
 			"chemical_formulas": [],
 			#"num_atoms": 0,
-			"num_atoms_per_frame": [],
-			"cells": [],
-			"pbc": [],
+			"num_atoms": [],
+			#"cells": [],
+			#"pbc": [],
 			"info_keys": [],
 			"array_keys": [],
 		}
