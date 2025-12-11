@@ -1,0 +1,15 @@
+[project]
+name = "vasp-server"
+version = "0.1.0"
+description = "vasp calculation for MatCreator"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ase>=3.26.0",
+    "bohr-agent-sdk>=0.1.101",
+    "bohrium-sdk>=0.13.0",
+    "numpy==1.26.4",
+    "dpdata>=0.2.25",
+    "pymatgen==2025.10.7",
+    "mp_api==0.45.13"
+]

@@ -164,7 +164,7 @@ toolset = CalculationMCPToolset(
         "optimize_structure",
         "get_base_model_path"
     ],
-    #executor_map = EXECUTOR_MAP,
+    executor_map = EXECUTOR_MAP,
     executor=executor["local"],
     #storage=STORAGE, 
 )

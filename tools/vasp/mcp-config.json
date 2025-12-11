@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "AbacusServer": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "tools/vasp",
+        "python",
+        "server.py"
+      ],
+      "env": {
+        "MCP_TRANSPORT": "stdio"
+      },
+      "metadata": {
+        "name": "VaspServer",
+        "description": "Vasp calculation",
+        "author": "MatCreator Team",
+        "category": "materials"
+      }
+    }
+  }
+}
