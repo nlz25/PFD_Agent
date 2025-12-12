@@ -7,13 +7,22 @@ For vasp tool
 
 3.在tool/vasp文件夹下配置.env文件，
 
+
 VASP_SERVER_WORK_PATH= /tmp/vasp_server
-BOHRIUM_USERNAME= 
+
+BOHRIUM_USERNAME=
+
 BOHRIUM_PASSWORD= 
+
 BOHRIUM_PROJECT_ID= 
+
 BOHRIUM_VASP_IMAGE= registry.dp.tech/dptech/prod-15454/vasp:5.4.4
+
 BOHRIUM_VASP_MACHINE= c32_m64_cpu
+
 BOHRIUM_VASP_COMMAND= source /opt/intel/oneapi/setvars.sh && mpirun -n 16 vasp_std
+
 VASPAGENT_SUBMIT_TYPE= bohrium
+
 
 4.uv run server.py --port 50004
