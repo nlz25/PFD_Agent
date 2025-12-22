@@ -3,9 +3,9 @@ import os
 import argparse
 from typing import Optional, Union, Literal, Dict, Any, List, Tuple
 from pathlib import Path
-import json
+import importlib
 import time
-from dotenv import load_dotenv, find_dotenv
+from dotenv import load_dotenv
 from matcreator.tools.abacus import (
     abacus_prepare as _abacus_prepare,
     abacus_modify_stru as _abacus_modify_stru,
@@ -18,6 +18,23 @@ from matcreator.tools.abacus import (
 load_dotenv(os.path.expanduser(".env"), override=True)
 
 ABACUS_SERVER_WORK_PATH = "/tmp/abacus_server"
+
+# allowed modules of ABACUS agent
+ALLOWED_MODULES=[
+    "abacus","band","dos","scf","relax"
+]
+
+def load_tools():
+    """
+    Load all tools from the abacusagent package.
+    """
+    for py_file in ALLOWED_MODULES:
+        module_name = f"abacusagent.modules.{py_file}"
+        try:
+            module = importlib.import_module(module_name)
+            print(f"✅ Successfully loaded: {module_name}")
+        except Exception as e:
+            print(f"⚠️ Failed to load {module_name}: {str(e)}")
 
 
 def create_workpath(work_path=None):
@@ -73,23 +90,17 @@ def parse_args():
 
 
 args = parse_args()  
-if args.model == "dp":
-    from dp.agent.server import CalculationMCPServer
-    mcp = CalculationMCPServer(
-            "AbacusServer",
-            host=args.host,
-            port=args.port
-        )
-elif args.model == "fastmcp":
-    from mcp.server.fastmcp import FastMCP
-    mcp = FastMCP(
-            "AbacusServer",
-            host=args.host,
-            port=args.port
-        )
-    
+
+# set env variable to fit ABACUS AGENT    
+os.environ["ABACUSAGENT_PORT"] = str(args.port)
+os.environ["ABACUSAGENT_HOST"] = args.host
+os.environ["ABACUSAGENT_MODEL"] = args.model
+
+# compatibility with original ABACUS-agent project
+from abacusagent.init_mcp import mcp
+
 @mcp.tool()
-def abacus_prepare(
+def abacus_prepare_batch(
         structure_path: Path,
         job_type: Literal["scf", "relax", "cell-relax", "md"] = "scf",
         lcao: bool = True,
@@ -154,7 +165,7 @@ def abacus_prepare(
         )
     
 @mcp.tool()
-def check_abacus_inputs(abacus_inputs_dir_ls: Union[List[Path], Path]) -> Dict[str, Any]:
+def check_abacus_inputs_batch(abacus_inputs_dir_ls: Union[List[Path], Path]) -> Dict[str, Any]:
     """
         Check if the ABACUS input files are valid. Always check the afer preparing input files with abacus_prepare_batch, 
         or after modifying them with abacus_modify_input_batch or abacus_modify_stru.
@@ -167,7 +178,7 @@ def check_abacus_inputs(abacus_inputs_dir_ls: Union[List[Path], Path]) -> Dict[s
     return _check_abacus_inputs(abacus_inputs_dir_ls)
     
 @mcp.tool()
-def abacus_modify_input(
+def abacus_modify_input_batch(
         abacus_inputs_dir_list: Union[Path,List[Path]],
         dft_plus_u_settings: Optional[Dict[str, Union[float, Tuple[Literal["p", "d", "f"], float]]]] = None,
         extra_input: Optional[Dict[str, Any]] = None,
@@ -201,7 +212,7 @@ def abacus_modify_input(
         )
         
 @mcp.tool()
-def abacus_modify_stru(
+def abacus_modify_stru_batch(
         abacus_inputs_dir_ls: Union[Path, List[Path]],
         pp: Optional[Dict[str, str]] = None,
         orb: Optional[Dict[str, str]] = None,
@@ -214,7 +225,7 @@ def abacus_modify_stru(
         angle2: Optional[List[float]] = None
     ) -> Dict[str, Any]:
     """
-        Modify pseudopotential, orbital, atom fixation, initial magnetic moments and initial velocities in ABACUS STRU file.
+        Modify pseudopotential, orbital, atom fixation, initial magnetic moments and initial velocities in ABACUS STRU file in Batch Mode.
         Args:
             abacus_inputs_dir_ls (List[Path]): A list of paths to the directory containing the ABACUS input files.
             pp: Dictionary mapping element names to pseudopotential file paths.
@@ -260,11 +271,11 @@ def abacus_modify_stru(
     
     
 @mcp.tool()
-def abacus_calculation_scf(
+def abacus_calculation_scf_batch(
         abacus_inputs_dir_ls: Union[List[str], str],
     ) -> Dict[str, Any]:
     """
-        Run ABACUS SCF calculation.
+        Run ABACUS SCF calculation in Batch Mode.
 
         Args:
             abacus_inputs_dir (Path): Path to the directory containing the ABACUS input files.
@@ -277,11 +288,11 @@ def abacus_calculation_scf(
         )
         
 @mcp.tool()
-def collect_abacus_scf_results(
+def collect_abacus_scf_results_batch(
         scf_work_dir_ls: Union[List[Path], Path],
     ) -> Dict[str, Any]:
     """
-        Collect results from ABACUS SCF calculation.
+        Collect results from ABACUS SCF calculation in Batch Mode.
 
         Args:
             scf_work_dir_ls (List[Path]): A list of path to the directories containing the ABACUS SCF calculation output files.
@@ -294,4 +305,6 @@ def collect_abacus_scf_results(
 
 if __name__ == "__main__":
     create_workpath()
+    load_tools(
+    )
     mcp.run(transport=args.transport)

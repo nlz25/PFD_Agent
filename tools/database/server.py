@@ -190,7 +190,7 @@ def read_user_structure(
 def query_compounds(
         selection: Union[dict,int,str,List[Union[str,Tuple]]],
         db_path: str,
-        exclusive_elements: Union[str, List[str]] = None,
+        #exclusive_elements: Union[str, List[str]] = None,
         limit: Optional[int] = None,
         custom_args: Dict[str, Any] = {},
     ) -> Dict[str, Any]:
@@ -206,15 +206,12 @@ def query_compounds(
             - int: single row id, e.g. `123`.
             - str: a single expression or a comma-separated list of expressions:
                 • no-key: 'Si' # Note: these would select any entry with 'Si' in formula, inclduing 'SiO2', etc.
+                         'energy' # Note: this would select any entry with 'energy' key present. 
                 • comparisons: 'key=value', 'key!=value', 'key<value', 'key<=value',
                   'key>value', 'key>=value'
                 • combined: 'formula=Si32,pbc=True,energy<-1.0' or 'Si,O'
             - list[str]: list of string expressions, e.g. `['formula=Si32', 'pbc=True']`.
             - list[tuple]: list of `(key, op, value)` tuples, e.g. `[("energy", "<", -1.0)]`.
-
-        exclusive_elements (str | set[str] | None):
-            Optional post-filtering by chemical elements. Only entries whose structures within the chemical space specified can
-            be included in the results. examples: "Ba,Ti,O" or {"Ba", "Ti", "O"}.
         
         limit (int | None):
             Maximum number of rows to return (applied during ASE selection).
@@ -270,7 +267,7 @@ def query_compounds(
     return _query_compounds(
             selection=selection,
             db_path=db_path,
-            exclusive_elements=exclusive_elements,
+            #exclusive_elements=exclusive_elements,
             limit=limit,
             custom_args=custom_args,
         )

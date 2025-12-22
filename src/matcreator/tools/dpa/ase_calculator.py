@@ -531,7 +531,7 @@ def ase_calculation(
             stress = atoms.get_stress()
             atoms.calc.results.clear()
             atoms.info['energy'] = energy
-            atoms.set_array('force', forces)
+            atoms.set_array('forces', forces)
             atoms.info['stress'] = stress
         labeled_data = work_path / "ase_results.extxyz"
         write(labeled_data, atoms_ls, format="extxyz")
