@@ -211,3 +211,11 @@ __marimo__/
 .tests/
 
 .claude
+
+
+# Sever related files
+*.orb
+*.upf
+*.UPF
+
+POT_GGA_PAW_PBE/

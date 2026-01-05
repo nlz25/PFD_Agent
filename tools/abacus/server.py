@@ -15,7 +15,8 @@ from matcreator.tools.abacus import (
     check_abacus_inputs as _check_abacus_inputs,
     )
 
-load_dotenv(os.path.expanduser(".env"), override=True)
+_script_dir = Path(__file__).parent
+load_dotenv(_script_dir / ".env", override=True)
 
 ABACUS_SERVER_WORK_PATH = "/tmp/abacus_server"
 

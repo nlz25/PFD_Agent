@@ -3,6 +3,8 @@ import os
 import argparse
 from typing import Union, List
 import time
+from dotenv import load_dotenv
+from pathlib import Path
 from matcreator.tools.structure_builder import (
     build_bulk_crystal as _build_bulk_crystal,
     build_supercell as _build_supercell,
@@ -15,6 +17,8 @@ from matcreator.tools.quest import (
 
 QUEST_SERVER_WORK_PATH= "/tmp/quest_server"
 
+_script_dir = Path(__file__).parent
+load_dotenv(_script_dir / ".env", override=True)
 
 def create_workpath(work_path=None):
     """

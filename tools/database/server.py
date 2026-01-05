@@ -25,8 +25,8 @@ logging.basicConfig(
     filename='agent.log', 
     filemode='w'         
 )
-
-load_dotenv(os.path.expanduser(".env"), override=True)
+_script_dir = Path(__file__).parent
+load_dotenv(_script_dir / ".env", override=True)
 
 DATABASE_SERVER_WORK_PATH = "/tmp/database_server"
 INFO_DB_PATH = ""
