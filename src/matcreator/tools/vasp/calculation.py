@@ -1,17 +1,16 @@
 import os
-import time
-import subprocess
-import shutil
 from pymatgen.core import Element, Structure
 from pymatgen.io.vasp import VaspInput, Vasprun, Kpoints, Poscar, Chgcar, Potcar, Outcar
 from pymatgen.electronic_structure.bandstructure import BandStructure, BandStructureSymmLine
-import math
-import pathlib
-from typing import Optional, Dict, Any, Union
-import numpy as np
+from pathlib import Path
+from typing import Optional, Dict, Any, Union, List
 from .common import run_vasp
 import traceback
 from dpdispatcher import Machine, Resources, Task, Submission
+from ase.io import read, write
+import dpdata
+from matcreator.tools.util.ase2xyz import dpdata2ase_single
+from matcreator.tools.util.common import generate_work_path
 
 def vasp_relaxation(calculation_id: str, work_dir: str, struct: Structure, 
                    kpoints: Kpoints, incar_dict: dict, potcar_map: Optional[Dict] = None) -> Dict[str, Any]:
@@ -77,12 +76,11 @@ def vasp_relaxation(calculation_id: str, work_dir: str, struct: Structure,
     elif submit_type == "bohrium":
         task=Task(
             command="source /opt/intel/oneapi/setvars.sh && mpirun -n 32 vasp_std",
-            # task_work_path=calc_dir_1,
             task_work_path=Name,
             forward_files=["POSCAR","INCAR","POTCAR","KPOINTS"],
             backward_files=["OSZICAR","CONTCAR","OUTCAR","vasprun.xml"]
         )
-        return task
+        return task, calc_dir
     
     else:
         raise ValueError("Invalid VASPAGENT_SUBMIT_TYPE. Must be 'local' or 'bohrium'.")
@@ -111,7 +109,6 @@ def vasp_scf(calculation_id: str, work_dir: str, struct: Structure,
     try:
         Name = calculation_id
         calc_dir = os.path.abspath(f'{work_dir}/{Name}')
-        calc_dir_1 = (f'tmp/vasp_server/{Name}')
         # 创建VASP输入文件
         # 手动获取元素列表，确保顺序与POSCAR一致
         poscar = Poscar(struct)
@@ -156,13 +153,47 @@ def vasp_scf(calculation_id: str, work_dir: str, struct: Structure,
     elif submit_type == "bohrium":
         task=Task(
             command="source /opt/intel/oneapi/setvars.sh && mpirun -n 32 vasp_std",
-            # task_work_path=calc_dir_1,
             task_work_path=Name,
             forward_files=["POSCAR","INCAR","POTCAR","KPOINTS"],
             backward_files=["OSZICAR","CONTCAR","OUTCAR","vasprun.xml"]
         )
-        return task
+        return task, calc_dir
     
     else:
         raise ValueError("Invalid VASPAGENT_SUBMIT_TYPE. Must be 'local' or 'bohrium'.")
 
+
+
+
+def vasp_scf_results(
+    scf_work_dir_ls: Union[List[Path], Path],
+) -> Dict[str, Any]:
+    """
+    Collect results from VASP SCF calculation.
+
+    Args:
+        scf_work_dir_ls (List[Path]): A list of path to the directories containing the VASP SCF calculation output files.
+    Returns:
+        A dictionary containing the path to output file of VASP calculation in extxyz format. The extxyz file contains the atomic structure and the total energy, atomic forces, etc., from the SCF calculation.
+    """
+    try:
+        if isinstance(scf_work_dir_ls, Path):
+            scf_work_dir_ls = [scf_work_dir_ls]
+        atoms_ls=[]
+        for scf_work_dir in scf_work_dir_ls:
+            system=dpdata.LabeledSystem(str(scf_work_dir.absolute()/"OUTCAR"),fmt='vasp/outcar') 
+            atoms=dpdata2ase_single(system)
+            atoms_ls.append(atoms)
+        work_path = Path(generate_work_path()).absolute()
+        work_path.mkdir(parents=True, exist_ok=True)
+        scf_result = work_path / "scf_result.extxyz"
+        write(scf_result, atoms_ls, format="extxyz")
+        return {
+            "status": "success",
+            "scf_result": str(scf_result.resolve())
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Collecting SCF results failed: {e}",
+            "traceback": traceback.format_exc()}

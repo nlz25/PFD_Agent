@@ -35,15 +35,15 @@ instruction ="""
 
 - Preconditions
     - Training: have train_data; optionally split with check_train_data; validate with check_input(strategy='dpa') before training.
-    - MD/Opt: require a model path; if missing, resolve via get_base_model_path(model_style='dpa'). For multi‑head DPA, set calc_args.head.
+    - MD/Opt: require a model path; if missing, resolve via get_base_model_path(model_style='dpa'). For multi-head DPA, set calc_args.head.
 
 - Minimal flows
     - Training (DPA only):
         1) list_training_strategies → train_input_doc('dpa') → check_train_data(train_data, ratios?)
         2) check_input(config, command, strategy='dpa') → training(..., strategy='dpa')
         3) Report model and log absolute paths; include test metrics if available.
-    - MD (DPA only):
-        1) list_calculators → get_base_model_path(model_style='dpa', model_path?)
+    - MD (DPA only), must flow the order:
+        1) first:list_calculators, then: get_base_model_path(model_style='dpa', model_path?)
         2) run_molecular_dynamics(initial_structure, stages, model_style='dpa', model_path, calc_args)
         3) Report trajectory paths and log path.
     - Optimization (DPA only):
@@ -57,10 +57,10 @@ instruction ="""
     - If a tool fails, surface the exact error and propose a minimal fix. Do not proceed until explicit user command.
 
 - Response format
-    - Plan: 1–3 bullets with the next step(s).
+    - Plan: 1-3 bullets with the next step(s).
     - Action: exact tool name you will call.
     - Result: key outputs with absolute paths and essential metrics.
-    - Next: immediate follow‑up or stop.
+    - Next: immediate follow-up or stop.
 """
 
 executor = {

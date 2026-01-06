@@ -11,6 +11,7 @@ from matcreator.tools.log import (
     )
 from ..abacus_agent.agent import abacus_agent
 from ..dpa_agent.agent import dpa_agent
+from ..vasp_agent.agent import vasp_agent
 import os
 from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL, BOHRIUM_USERNAME, BOHRIUM_PASSWORD, BOHRIUM_PROJECT_ID
 
@@ -22,26 +23,27 @@ bohrium_password = os.environ.get("BOHRIUM_PASSWORD", BOHRIUM_PASSWORD)
 bohrium_project_id = int(os.environ.get("BOHRIUM_PROJECT_ID", BOHRIUM_PROJECT_ID))
 
 description="""
-The main coordinator agent for PFD (pretrain-finetuning-distillation) workflow. Handles PFD workflow and delegates DPA/ABACUS tasks to specialized sub-agents.
+The main coordinator agent for PFD (pretrain-finetuning-distillation) workflow. Handles PFD workflow and delegates DPA/ABACUS/VASP tasks to specialized sub-agents.
 """
 
 instruction ="""
 Mission
 - Orchestrate the standard PFD workflow with minimal, safe steps and clear outputs:
-    MD exploration → data curation (entropy selection) → DFT labeling (ABACUS) → model training (DPA).
+    - MD exploration → data curation (filter_by_entropy) → DFT labeling (VASP) → model training (DPA).
 
 Before any actually calculation, you must verify with user the following critical parameters:
 - General: task type (fine-tuning or distillation), max PFD iteration numbers (default 1) and convergence criteria for model training (e.g., 0.002 eV/atom)
 - MD: ensemble (NVT/NPT/NVE), temperature(s), total simulation time (ps), timestep/expected steps, save interval steps.
 - Curation: max_sel (and chunk_size if applicable).
-- ABACUS: kspacing (default 0.14).
+
 - Training: target epochs (or equivalent); training-testing data split ratio.
 - Interaction mode: chat (check with user for each step) or non-interactive batch (default, proceed if no error occurs).
 
 
-You have two specialized sub‑agents: 
+You have three specialized sub‑agents: 
 1. 'dpa_agent_pfd': Handles MD simulation and TRAINING with DPA model. Delegate to it for these.
 2. 'abacus_agent_pfd': Handles DFT calculations using ABACUS software. Delegate to it for these.
+3. 'vasp_agent_pfd': Handles DFT calculations using VASP software. Delegate to it for these.
 
 Never invent tools
 - Only call tools from the allowlist above. Do not fabricate tool or agent names.
@@ -115,13 +117,16 @@ selector_toolset = MCPToolset(
 )
 
 allowed = {"abacus_prepare", "abacus_calculation_scf", "collect_abacus_scf_results",
-           "training","run_molecular_dynamics","filter_by_entropy"}
-name_map={
+           "training","run_molecular_dynamics","filter_by_entropy",
+           "vasp_scf_tool","vasp_scf_results_tool"}
+name_map = {
     "abacus_prepare":"labeling_abacus_scf_preparation",
     "abacus_calculation_scf":"labeling_abacus_scf_calculation",  
     "collect_abacus_scf_results":"labeling_abacus_scf_collect_results",
     "run_molecular_dynamics":"exploration_md",
-    "filter_by_entropy":"explore_filter_by_entropy"
+    "filter_by_entropy":"explore_filter_by_entropy",
+    "vasp_scf_tool":"labeling_vasp_scf_calculation",
+    "vasp_scf_results_tool":"labeling_vasp_scf_collect_results"
 }
 
 def after_tool_callback(tool,args,tool_context,tool_response):
@@ -141,6 +146,13 @@ abacus_agent= abacus_agent.clone(
 dpa_agent= dpa_agent.clone(
     update={
         "name": "dpa_agent_pfd",
+        "after_tool_callback": after_tool_callback
+        },
+)
+
+vasp_agent= vasp_agent.clone(
+    update={
+        "name": "vasp_agent_pfd",
         "after_tool_callback": after_tool_callback
         },
 )
@@ -165,5 +177,6 @@ pfd_agent = LlmAgent(
     sub_agents=[
         abacus_agent,
         dpa_agent,
+        vasp_agent
     ]
 )

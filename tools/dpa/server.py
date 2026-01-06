@@ -18,7 +18,7 @@ from matcreator.tools.dpa import (
 
 load_dotenv(os.path.expanduser(".env"), override=True)
 
-DPA_MODEL_PATH = "/home/ruoyu/dev/PFD-Agent/.tests/dpa/DPA2_medium_28_10M_rc0.pt"
+DPA_MODEL_PATH = "/home/zdj/DPA2_medium_28_10M_rc0.pt"
 DPA_SERVER_WORK_PATH = "/tmp/dpa_server"
 
 

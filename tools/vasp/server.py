@@ -7,9 +7,9 @@ import time
 from matcreator.tools.vasp.calculation import (
     vasp_relaxation as vasp_relaxation,
     vasp_scf as vasp_scf,
+    vasp_scf_results as vasp_scf_results,
 )
 import yaml
-from matcreator.tools.util.sqldata import VaspCalculationDB
 from pymatgen.core import Structure
 import math
 import numpy as np
@@ -29,7 +29,7 @@ machine={
     "remote_profile":{
         "email": "",
         "password": "", 
-        "program_id": 12345,
+        "program_id": ,
         "keep_backup":True,
         "input_data":{
             "job_type": "container",
@@ -157,6 +157,7 @@ def vasp_relaxation_tool(structure_path: Path, incar_tags: Optional[Dict] = None
         cif_path_ls.append(str(cif_path))
 
     task_list = []
+    calc_dir_ls = []
     for cifpath in cif_path_ls:
         # 生成随机UUID
         calculation_id = datetime.now().strftime("%Y%m%d%H%M%S_%f")
@@ -176,7 +177,7 @@ def vasp_relaxation_tool(structure_path: Path, incar_tags: Optional[Dict] = None
             incar.update(incar_tags)
             
         # 执行计算
-        task = vasp_relaxation(
+        task, calc_dir = vasp_relaxation(
             calculation_id=calculation_id,
             work_dir=settings['work_dir'],
             struct=struct,
@@ -189,7 +190,7 @@ def vasp_relaxation_tool(structure_path: Path, incar_tags: Optional[Dict] = None
             raise TypeError(f"vasp_scf must return Task, got {type(task)}: {task}")
 
         task_list.append(task)
-
+        calc_dir_ls.append(calc_dir)
 
     submission = Submission(
         work_base="./",
@@ -203,7 +204,8 @@ def vasp_relaxation_tool(structure_path: Path, incar_tags: Optional[Dict] = None
     submission.run_submission()    
     
     return {
-        "success": True
+        "success": True,
+        "calc_dir_list":[str(vasp_relax_dir) for vasp_relax_dir in calc_dir_ls]
     }
 
 
@@ -242,6 +244,7 @@ def vasp_scf_tool(structure_path: Path, restart_id: Optional[str] = None, soc: b
         cif_path_ls.append(str(cif_path))
 
     task_list = []
+    calc_dir_ls = []
     for cifpath in cif_path_ls:
         # 生成随机UUID
         calculation_id = datetime.now().strftime("%Y%m%d%H%M%S_%f")
@@ -264,7 +267,7 @@ def vasp_scf_tool(structure_path: Path, restart_id: Optional[str] = None, soc: b
             incar.update(incar_tags)
             
         # 执行计算
-        task = vasp_scf(
+        task, calc_dir = vasp_scf(
             calculation_id=calculation_id,
             work_dir=settings['work_dir'],
             struct=struct,
@@ -277,6 +280,7 @@ def vasp_scf_tool(structure_path: Path, restart_id: Optional[str] = None, soc: b
             raise TypeError(f"vasp_scf must return Task, got {type(task)}: {task}")
 
         task_list.append(task)
+        calc_dir_ls.append(calc_dir)
 
 
     submission = Submission(
@@ -290,9 +294,27 @@ def vasp_scf_tool(structure_path: Path, restart_id: Optional[str] = None, soc: b
 
     submission.run_submission()  
     return {
-        "success": True
+        "status": "success",
+        "calc_dir_list":[str(vasp_scf_dir) for vasp_scf_dir in calc_dir_ls]
     }
 
+
+
+@mcp.tool()
+def vasp_scf_results_tool(
+        scf_work_dir_ls: Union[List[Path], Path],
+    ) -> Dict[str, Any]:
+    """
+        Collect results from VASP SCF calculation.
+
+        Args:
+            scf_work_dir_ls (List[Path]): A list of path to the directories containing the VASP SCF calculation output files.
+        Returns:
+            A dictionary containing the path to output file of VASP calculation in extxyz format. The extxyz file contains the atomic structure and the total energy, atomic forces, etc.
+        """
+    return vasp_scf_results(
+            scf_work_dir_ls=scf_work_dir_ls
+        )
 
 if __name__ == "__main__":
     create_workpath()

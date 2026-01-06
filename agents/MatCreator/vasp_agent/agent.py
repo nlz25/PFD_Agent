@@ -81,6 +81,7 @@ toolset = MCPToolset(
     tool_filter=[
         "vasp_relaxation_tool",
         "vasp_scf_tool",
+        "vasp_scf_results_tool",
         "vasp_nscf_kpath_tool",
         "vasp_nscf_uniform_tool",
     ],
