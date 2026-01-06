@@ -5,6 +5,7 @@ from google.adk.tools.mcp_tool import MCPToolset
 from typing import Literal, Optional, Dict, Any
 from ..abacus_agent.agent import abacus_agent
 from ..dpa_agent.agent import dpa_agent
+from ..vasp_agent.agent import vasp_agent
 from ..structure_agent.agent import structure_agent
 from ..callbacks import (
     before_agent_callback,
@@ -23,7 +24,7 @@ bohrium_password = os.environ.get("BOHRIUM_PASSWORD", BOHRIUM_PASSWORD)
 bohrium_project_id = int(os.environ.get("BOHRIUM_PROJECT_ID", BOHRIUM_PROJECT_ID))
 
 description="""
-The main coordinator agent for PFD (pretrain-finetuning-distillation) workflow. Handles PFD workflow and delegates DPA/ABACUS tasks to specialized sub-agents.
+The main coordinator agent for PFD (pretrain-finetuning-distillation) workflow. Handles PFD workflow and delegates DPA/ABACUS/VASP tasks to specialized sub-agents.
 """
 
 instruction ="""
@@ -119,6 +120,12 @@ structure_agent = structure_agent.clone(
         },
 )
 
+vasp_agent= vasp_agent.clone(
+    update={
+        "name": "vasp_agent_pfd",
+        "after_tool_callback": after_tool_callback
+        },
+)
 
 pfd_agent = LlmAgent(
     name='pfd_agent',
@@ -139,6 +146,7 @@ pfd_agent = LlmAgent(
     sub_agents=[
         abacus_agent,
         dpa_agent,
+        vasp_agent
         structure_agent
     ]
 )

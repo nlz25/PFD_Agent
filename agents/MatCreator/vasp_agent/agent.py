@@ -73,28 +73,20 @@ STORAGE = {
 
 
 # tools hosted by MCP server
-toolset = CalculationMCPToolset(
+toolset = MCPToolset(
     connection_params=SseServerParams(
         url="http://localhost:50005/sse", # Or any other MCP server URL
         sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds
     ),
     tool_filter=[
-        "analyze_crystal_structure",
-        "search_materials_project_tool",
-        # "create_crystal_structure",
-        # "make_supercell",
-        # "scale_structure",
-        # "rotate_structure",
-        # "symmetrize_structure",
-        "convert_structure_format",
         "vasp_relaxation_tool",
         "vasp_scf_tool",
+        "vasp_scf_results_tool",
         "vasp_nscf_kpath_tool",
         "vasp_nscf_uniform_tool",
-        "check_calculation_status_tool"
     ],
-    executor=executor["local"],
-    executor_map = EXECUTOR_MAP,
+    # executor=executor["local"],
+    # executor_map = EXECUTOR_MAP,
     # storage=STORAGE,
 )
 

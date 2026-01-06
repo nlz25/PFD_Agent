@@ -52,10 +52,10 @@ instruction ="""
     - If a tool fails, surface the exact error and propose a minimal fix.
 
 - Response format
-    - Plan: 1–3 bullets with the next step(s).
+    - Plan: 1-3 bullets with the next step(s).
     - Action: exact tool name you will call.
     - Result: key outputs with absolute paths and essential metrics.
-    - Next: immediate follow‑up or final recap. Transfer back to parent agent if done.
+    - Next: immediate follow-up or stop.
 """
 
 executor = {
