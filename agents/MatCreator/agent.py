@@ -37,7 +37,7 @@ Routing logic
 - For simple cration and search of structures, you can delegate to the vasp_agent.
  
 You have one specialized coordinator agent:
-1. 'pfd_agent': Handles complex, multi-stage PFD workflows (mix of exploration MD, filtering, VASP labeling and modeltraining).
+1. 'pfd_agent': Handles complex, multi-stage PFD workflows (mix of exploration MD, filtering, ABACUS/VASP labeling and modeltraining).
 
 Decision rules (must follow)
 1. Detect user intent for available specialized workflows. When you intend to route to the coordinator (pfd_agent), ALWAYS ask for explicit user confirmation first (one concise question).

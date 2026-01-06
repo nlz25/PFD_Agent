@@ -1,9 +1,0 @@
-
-cd $REMOTE_ROOT
-cd 20251228171347_249234
-test $? -ne 0 && exit 1
-if [ ! -f 26812e44faecc82931847f1a40c760117bbbb464_task_tag_finished ] ;then
-   ( source /opt/intel/oneapi/setvars.sh && mpirun -n 32 vasp_std ) 1>>log 2>>err 
-  if test $? -eq 0; then touch 26812e44faecc82931847f1a40c760117bbbb464_task_tag_finished; else echo 1 > $REMOTE_ROOT/2f94bde0fbc8351723837e39bdba90e6cb1bfb0a_flag_if_job_task_fail;tail -v -c 1000 $REMOTE_ROOT/20251228171347_249234/err > $REMOTE_ROOT/2f94bde0fbc8351723837e39bdba90e6cb1bfb0a_last_err_file;fi
-fi &
-wait 
