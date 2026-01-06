@@ -1,10 +1,7 @@
 # ========== 必填路径 ==========
 db_path: "/tmp/vasp_server/vasp_calculations.db"                    # 数据库文件
 structure_path: "/tmp/vasp_server/structures"                        # 从 MP 下载的结构放这里
-work_dir: "/tmp/vasp_server/vasp_jobs"                             
-
-# ========== 可选：Materials Project ==========
-mp_api_key: ""                                             # 填你的 key，不用就留空
+work_dir: "/tmp/vasp_server"                             
 
 # ========== 重点：默认 INCAR 参数 ==========
 VASP_default_INCAR:
@@ -85,8 +82,8 @@ VASP_default_INCAR:
     ISPIN: 1
 
     # 输出与数值细节
-    LCHARG: true
-    LWAVE: true
+    LCHARG: false
+    LWAVE: false
     LORBIT: 11
     LASPH: true
     LREAL: "Auto"
