@@ -27,9 +27,9 @@ machine={
     "context_type": "BohriumContext",
     "local_root" : "/tmp/vasp_server",
     "remote_profile":{
-        "email": "",
-        "password": "", 
-        "program_id": ,
+        "email": "2023400280@qq.com",
+        "password": "20000612Zdj!", 
+        "program_id": 29496,
         "keep_backup":True,
         "input_data":{
             "job_type": "container",

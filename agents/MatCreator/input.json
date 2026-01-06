@@ -1,8 +1,8 @@
 {
     "LLM_MODEL": "openai/qwen3-max",
-    "LLM_API_KEY": "",
-    "LLM_BASE_URL": "",
-    "BOHRIUM_USERNAME": "",
-    "BOHRIUM_PASSWORD": "",
-    "BOHRIUM_PROJECT_ID": 
+    "LLM_API_KEY": "sk-78457c528a7b4751ac461bd597467a80",
+    "LLM_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "BOHRIUM_USERNAME": "2023400280@qq.com",
+    "BOHRIUM_PASSWORD": "20000612Zdj!",
+    "BOHRIUM_PROJECT_ID": 29496
 }
