@@ -5,15 +5,13 @@ from typing import Union, List
 import time
 from dotenv import load_dotenv
 from pathlib import Path
-from matcreator.tools.structure_builder import (
+from structure_builder import (
     build_bulk_crystal as _build_bulk_crystal,
     build_supercell as _build_supercell,
     inspect_structure as _inspect_structure,
     perturb_atoms as _perturb_atoms,
-)
-from matcreator.tools.quest import (
     filter_by_entropy as _filter_by_entropy,
-    )
+)
 
 QUEST_SERVER_WORK_PATH= "/tmp/quest_server"
 

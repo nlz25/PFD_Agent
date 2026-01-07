@@ -1,6 +1,6 @@
 [project]
 name = "quest-server"
-version = "0.1.0"
+version = "0.0.1"
 description = "Quest for entropy-based structure filtering"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -8,6 +8,12 @@ dependencies = [
     "ase>=3.26.0",
     "bohr-agent-sdk>=0.1.101",
     "bohrium-sdk>=0.13.0",
-    "quests",
-    "matcreator @ git+https://github.com/nlz25/PFD_Agent.git@ruoyu-dev"
+    "quests"
 ]
+
+[tool.setuptools]
+packages = { find = { where = ["src"] } }
+
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
