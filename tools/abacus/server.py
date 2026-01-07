@@ -6,7 +6,7 @@ from pathlib import Path
 import importlib
 import time
 from dotenv import load_dotenv
-from matcreator.tools.abacus import (
+from abacus import (
     abacus_prepare as _abacus_prepare,
     abacus_modify_stru as _abacus_modify_stru,
     abacus_modify_input as _abacus_modify_input,
@@ -97,8 +97,21 @@ os.environ["ABACUSAGENT_PORT"] = str(args.port)
 os.environ["ABACUSAGENT_HOST"] = args.host
 os.environ["ABACUSAGENT_MODEL"] = args.model
 
-# compatibility with original ABACUS-agent project
-from abacusagent.init_mcp import mcp
+args = parse_args()  
+if args.model == "dp":
+    from dp.agent.server import CalculationMCPServer
+    mcp = CalculationMCPServer(
+            "QuestServer",
+            host=args.host,
+            port=args.port
+        )
+elif args.model == "fastmcp":
+    from mcp.server.fastmcp import FastMCP
+    mcp = FastMCP(
+            "QuestServer",
+            host=args.host,
+            port=args.port
+        )
 
 @mcp.tool()
 def abacus_prepare_batch(
