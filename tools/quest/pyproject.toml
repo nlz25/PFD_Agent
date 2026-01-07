@@ -10,10 +10,3 @@ dependencies = [
     "bohrium-sdk>=0.13.0",
     "quests"
 ]
-
-[tool.setuptools]
-packages = { find = { where = ["src"] } }
-
-[build-system]
-requires = ["setuptools>=42", "wheel"]
-build-backend = "setuptools.build_meta"
