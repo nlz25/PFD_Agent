@@ -11,6 +11,8 @@ from matcreator.tools.util.common import generate_work_path
 from datetime import datetime
 import traceback, time, uuid
 
+## DEPRECATED
+
 #def generate_work_path(create: bool = True) -> str:
 #    calling_function = traceback.extract_stack(limit=2)[-2].name
 #    current_time = time.strftime("%Y%m%d%H%M%S")

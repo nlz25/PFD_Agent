@@ -6,7 +6,5 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "ase>=3.26.0",
-    "bohr-agent-sdk>=0.1.101",
-    "bohrium-sdk>=0.13.0",
-    "matcreator @ git+https://github.com/nlz25/PFD_Agent.git@ruoyu-dev"
+    "mcp"
 ]
