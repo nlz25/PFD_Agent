@@ -22,6 +22,7 @@ from dargs import (
     Argument
 )
 
+from .utils import run_command
 
 DPA1_CONFIG_TEMPLATE = {
     "model": {

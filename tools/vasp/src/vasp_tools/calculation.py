@@ -8,7 +8,7 @@ import traceback
 from dpdispatcher import Machine, Resources, Task, Submission
 from ase.io import read, write
 import dpdata
-from utils import dpdata2ase_single, generate_work_path
+from .utils import dpdata2ase_single, generate_work_path
 
 def vasp_relaxation(calculation_id: str, work_dir: str, struct: Structure, 
                    kpoints: Kpoints, incar_dict: dict, potcar_map: Optional[Dict] = None) -> Dict[str, Any]:

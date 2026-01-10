@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "quest-server"
 version = "0.0.1"
@@ -5,8 +9,9 @@ description = "Quest for entropy-based structure filtering"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "ase>=3.26.0",
+    "ase",
     "bohr-agent-sdk>=0.1.101",
-    "bohrium-sdk>=0.13.0",
-    "quests"
+    "numba==0.63.1",
+    "numpy",
+    "quests",
 ]

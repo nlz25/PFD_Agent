@@ -703,7 +703,7 @@ def run_molecular_dynamics(
     model_path: Path,
     config: Dict[str, Any],
     workflow_name: str = "molecular-dynamics-batch",
-    mode: Literal["debug", "bohrium"] = "debug",
+    #mode: Literal["debug", "bohrium"] = "debug",
     #prep_md_config: Optional[Dict[str, Any]] = None,
     #run_md_config: Optional[Dict[str, Any]] = None,
 ):
@@ -779,6 +779,8 @@ def run_molecular_dynamics(
     import dpa_tool
     import dflow
     import ase 
+    
+    mode=os.environ.get("DPA_SUBMIT_TYPE", "bohrium")
     
     work_path=Path(generate_work_path())
     work_path = work_path.resolve()

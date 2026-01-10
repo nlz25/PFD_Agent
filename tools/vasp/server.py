@@ -32,7 +32,7 @@ machine={
     "remote_profile":{
         "email": os.environ.get("BOHRIUM_USERNAME")                                                                                                                                                                                     ,
         "password": os.environ.get("BOHRIUM_PASSWORD")                                                                                                                                                                                     ,
-        "program_id": os.environ.get("BOHRIUM_PROJECT_ID")                                                   ,
+        "program_id": int(os.environ.get("BOHRIUM_PROJECT_ID"))                                                   ,
         "keep_backup":True,
         "input_data":{
             "job_type": "container",

@@ -10,7 +10,6 @@ import random
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Union
-import quests
 import numpy as np
 from ase.atoms import Atoms
 from ase.build import bulk, make_supercell
