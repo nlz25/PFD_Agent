@@ -58,7 +58,7 @@ The script automatically handles port assignments and logging for each server, m
 #### Setting constants
 Populate `agents/MatCreator/.env` with your model and Bohrium credentials (if using `dp` model).
 
-```bash
+```env
 LLM_API_KEY="API_KEYS",
 LLM_BASE_URL="API_KEYS",
 BOHRIUM_USERNAME="",
