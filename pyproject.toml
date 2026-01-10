@@ -17,21 +17,10 @@ dependencies = [
     "pyyaml>=6.0.2",
     "bohr-agent-sdk",
     "scipy>=1.16.2",
+    "python-dotenv"
 ]
-
-[project.scripts]
-pfd-agent = "matcreator.script.pfd_agent:main"
-database-agent = "matcreator.script.database_agent:main"
-
 
 [build-system]
 requires = ["setuptools>=65.5.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-# Map the top-level packages to the `src` directory
-package-dir = {"" = "src"}
-
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["matcreator*"]

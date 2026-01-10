@@ -6,7 +6,7 @@ from .pfd_agent.agent import pfd_agent
 from .database_agent.agent import database_agent
 from .abacus_agent.agent import abacus_agent
 from .dpa_agent.agent import dpa_agent
-#from .vasp_agent.agent import vasp_agent
+from .vasp_agent.agent import vasp_agent
 from .structure_agent.agent import structure_agent
 from .constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL
 from .callbacks import (
@@ -58,10 +58,11 @@ Errors & blocking inputs
 
 Response format (strict)
 - Plan: 1–3 bullets (intent + rationale).
-- Transfer: agent name ONLY (e.g., Transfer: database_agent | pfd_agent).
+- Action: Immediately transfer control to the appropriate agent by invoking it. Do NOT just write text about transferring.
 - Result: (after agent returns) concise artifacts + metrics (absolute paths).
 - Next: immediate follow-up step or final recap.
 
+IMPORTANT: To transfer to a sub-agent, you must actually invoke/call that agent - do not just mention the agent name in text.
 Never fabricate agent or tool names. Always transfer to agents for actions.
 """
 
@@ -113,7 +114,7 @@ root_agent = LlmAgent(
         database_agent,
         abacus_agent,
         dpa_agent,
-        #vasp_agent,
+        vasp_agent,
         structure_agent
     ]
     )

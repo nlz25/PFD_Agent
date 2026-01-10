@@ -1,8 +1,9 @@
 from google.adk.agents import  LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
-from google.adk.tools.mcp_tool import MCPToolset
-from typing import Literal, Optional, Dict, Any
+from google.adk.tools.mcp_tool import McpToolset
+from dp.agent.adapter.adk import CalculationMCPToolset
+
 from ..abacus_agent.agent import abacus_agent
 from ..dpa_agent.agent import dpa_agent
 from ..vasp_agent.agent import vasp_agent
@@ -14,14 +15,16 @@ from ..callbacks import (
     get_session_context
 )
 import os
-from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL, BOHRIUM_USERNAME, BOHRIUM_PASSWORD, BOHRIUM_PROJECT_ID
+from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL
+from dotenv import load_dotenv
+from pathlib import Path
+_script_dir = Path(__file__).parent
+load_dotenv(_script_dir / ".env", override=True)
 
 model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
 model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)
 model_base_url = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
-bohrium_username = os.environ.get("BOHRIUM_USERNAME", BOHRIUM_USERNAME)
-bohrium_password = os.environ.get("BOHRIUM_PASSWORD", BOHRIUM_PASSWORD)
-bohrium_project_id = int(os.environ.get("BOHRIUM_PROJECT_ID", BOHRIUM_PROJECT_ID))
+
 
 description="""
 The main coordinator agent for PFD (pretrain-finetuning-distillation) workflow. Handles PFD workflow and delegates DPA/ABACUS/VASP tasks to specialized sub-agents.
@@ -79,7 +82,7 @@ Response format
 """
 
 
-toolset = MCPToolset(
+toolset = McpToolset(
     connection_params=SseServerParams(
         url="http://localhost:50003/sse", # Or any other MCP server URL
         sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds
@@ -146,7 +149,7 @@ pfd_agent = LlmAgent(
     sub_agents=[
         abacus_agent,
         dpa_agent,
-        vasp_agent
+        vasp_agent,
         structure_agent
     ]
 )

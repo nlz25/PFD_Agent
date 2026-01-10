@@ -7,10 +7,16 @@ requires-python = ">=3.12"
 dependencies = [
     "ase>=3.26.0",
     "abacustest>=0.4.37",
-    "bohr-agent-sdk>=0.1.101",
+    "bohr-agent-sdk>=0.1.100",
     "bohrium-sdk>=0.13.0",
-    "numpy>=2.2.0",
+    "numpy<2.0",
     "dpdata>=0.2.25",
-    "matcreator @ git+https://github.com/nlz25/PFD_Agent.git@devel",    
-    "abacus @ git+https://github.com/deepmodeling/ABACUS-agent-tools.git@devel"
+    "abacusagent @ git+https://github.com/deepmodeling/ABACUS-agent-tools.git"
 ]
+
+[tool.setuptools]
+packages = { find = { where = ["src"] } }
+
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"

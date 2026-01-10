@@ -4,7 +4,7 @@ import argparse
 from typing import Optional, Union, Literal, Dict, Any, List, Tuple
 from pathlib import Path
 import time
-from matcreator.tools.vasp.calculation import (
+from vasp_tools.calculation import (
     vasp_relaxation as vasp_relaxation,
     vasp_scf as vasp_scf,
     vasp_scf_results as vasp_scf_results,
@@ -19,7 +19,10 @@ from ase.io import read, write
 from datetime import datetime
 from dpdispatcher import Machine, Resources, Task, Submission
 from dotenv import load_dotenv
-load_dotenv(os.path.expanduser(".env"), override=True)
+
+_script_dir = Path(__file__).parent
+load_dotenv(_script_dir / ".env", override=True)
+
 VASP_SERVER_WORK_PATH = "/tmp/vasp_server"
 
 machine={
@@ -27,17 +30,17 @@ machine={
     "context_type": "BohriumContext",
     "local_root" : "/tmp/vasp_server",
     "remote_profile":{
-        "email": "",
-        "password": "", 
-        "program_id": ,
+        "email": os.environ.get("BOHRIUM_USERNAME")                                                                                                                                                                                     ,
+        "password": os.environ.get("BOHRIUM_PASSWORD")                                                                                                                                                                                     ,
+        "program_id": int(os.environ.get("BOHRIUM_PROJECT_ID"))                                                   ,
         "keep_backup":True,
         "input_data":{
             "job_type": "container",
             "grouped":True,
             "job_name": "vasp_opt",
-            "scass_type":"c32_m64_cpu",
+            "scass_type":os.environ.get("BOHRIUM_VASP_MACHINE"),
             "platform": "ali",
-            "image_name":"registry.dp.tech/dptech/prod-15454/vasp:5.4.4"
+            "image_name":os.environ.get("BOHRIUM_VASP_IMAGE")
         }
 }
 }
@@ -151,10 +154,10 @@ def vasp_relaxation_tool(structure_path: Path, incar_tags: Optional[Dict] = None
         cif_path = cif_dir / f"frame_{idx:04d}.cif"
         try:
             write(str(cif_path), atoms, format="cif")
+            cif_path_ls.append(str(cif_path))
         except Exception as e:
-            results.append({"message": f"Failed to write CIF for frame {idx}: {e}", "frame_index": idx})
+            print(f"Warning: Failed to write CIF for frame {idx}: {e}")
             continue
-        cif_path_ls.append(str(cif_path))
 
     task_list = []
     calc_dir_ls = []
@@ -238,10 +241,10 @@ def vasp_scf_tool(structure_path: Path, restart_id: Optional[str] = None, soc: b
         cif_path = cif_dir / f"frame_{idx:04d}.cif"
         try:
             write(str(cif_path), atoms, format="cif")
+            cif_path_ls.append(str(cif_path))
         except Exception as e:
-            results.append({"message": f"Failed to write CIF for frame {idx}: {e}", "frame_index": idx})
+            print(f"Warning: Failed to write CIF for frame {idx}: {e}")
             continue
-        cif_path_ls.append(str(cif_path))
 
     task_list = []
     calc_dir_ls = []
