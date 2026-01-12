@@ -43,7 +43,7 @@ instruction ="""
         2) check_input(config, command, strategy='dpa') → training(..., strategy='dpa')
         3) Report model and log absolute paths; include test metrics if available.
     - MD (DPA only), must flow the order:
-        1) first:list_calculators, then: get_base_model_path(model_style='dpa', model_path?)
+        1) get_base_model_path(model_style='dpa', model_path?)
         2) run_molecular_dynamics(initial_structure, stages, model_style='dpa', model_path, calc_args)
         3) Report trajectory paths and log path.
     - Optimization (DPA only):
@@ -52,8 +52,7 @@ instruction ="""
         3) Report optimized structure path and final energy.
 
 - Defaults and tips
-    - Prefer quick validations first (small splits, short MD stages, modest relax steps).
-    - Always return absolute artifact paths. 
+    - Prefer quick validations first (small splits, short MD stages, modest relax steps). 
     - If a tool fails, surface the exact error and propose a minimal fix. Do not proceed until explicit user command.
 
 - Response format
@@ -86,7 +85,7 @@ executor = {
 }
 
 EXECUTOR_MAP = {
-    "run_molecular_dynamics": executor["bohr"],
+    # "run_molecular_dynamics": executor["bohr"],
     "optimize_structure": executor["bohr"],
     "training": executor["bohr"],
     "ase_calculation": executor["bohr"],
@@ -147,7 +146,7 @@ def list_calculators() -> List[Dict[str, Any]]:
 
 
 # tools hosted by MCP server
-toolset = CalculationMCPToolset(
+toolset = MCPToolset(
     connection_params=SseServerParams(
         #url="https://kyuz1150126.bohrium.tech:50001/sse", # Or any other MCP server URL
         url="http://localhost:50002/sse", # Or any other MCP server URL
@@ -164,8 +163,8 @@ toolset = CalculationMCPToolset(
         "optimize_structure",
         "get_base_model_path"
     ],
-    executor_map = EXECUTOR_MAP,
-    executor=executor["local"],
+    # executor_map = EXECUTOR_MAP,
+    # executor=executor["local"],
     #storage=STORAGE, 
 )
 
