@@ -26,7 +26,6 @@ from matcreator.tools.util.common import generate_work_path
 import logging
 from deepmd.calculator import DP
 
-
 #@mcp.tool()
 def get_base_model_path(
     model_path: Optional[Path]=None
