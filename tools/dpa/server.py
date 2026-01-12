@@ -12,6 +12,7 @@ import subprocess
 import sys
 import shlex
 import selectors
+import json
 from jsonschema import validate, ValidationError
 from dotenv import load_dotenv
 
@@ -865,9 +866,8 @@ def run_molecular_dynamics(
             
             # Scan for task directories and their files
             task_results = {}
-            log_files = []
-            status_files = []
-            traj_files = []
+            failed_tasks = []
+            successful_traj_files = []
             
             # Find all task directories
             task_dirs = list(download_path.glob("task.[0-9]*"))
@@ -877,33 +877,57 @@ def run_molecular_dynamics(
                 task_results[task_name] = {}
                 
                 # Find log files
-                task_logs = list(task_dir.glob("*.log"))
-                if task_logs:
-                    task_results[task_name]["log"] = task_logs[0].resolve()
-                    log_files.extend([str(f.resolve()) for f in task_logs])
+                #task_logs = list(task_dir.glob("*.log"))
+                #if task_logs:
+                #    task_results[task_name]["log"] = task_logs[0].resolve()
                 
                 # Find status/json files  
                 task_jsons = list(task_dir.glob("*.json"))
                 if task_jsons:
-                    task_results[task_name]["status"] = task_jsons[0].resolve()
-                    status_files.extend([str(f.resolve()) for f in task_jsons])
+                    task_results[task_name]["status_file"] = task_jsons[0].resolve()
+                    
+                    # Read and parse status.json
+                    try:
+                        with open(task_jsons[0], 'r') as f:
+                            status_data = json.load(f)
+                            task_status = status_data.get("status", "unknown")
+                            task_results[task_name]["status"] = task_status
+                            
+                            if task_status == "error":
+                                error_message = status_data.get("message", "No error message available")
+                                failed_tasks.append({
+                                    "task_name": task_name,
+                                    "task_dir": str(task_dir.resolve()),
+                                    "error_message": error_message,
+                                    "error_details": status_data.get("error_details", "")
+                                })
+                                logging.warning(f"Task {task_name} failed: {error_message}")
+                            elif task_status == "success":
+                                # Find trajectory files for successful tasks
+                                task_trajs = list(task_dir.glob("trajs_files/*.extxyz"))
+                                if task_trajs:
+                                    successful_traj_files.extend([str(f.resolve()) for f in task_trajs])
+                    except Exception as e:
+                        logging.error(f"Failed to read status file for {task_name}: {str(e)}")
+                        task_results[task_name]["status"] = "unknown"
                 
                 # Find trajectory files
-                task_trajs = list(task_dir.glob("trajs_files/*.extxyz"))
-                if task_trajs:
-                    task_results[task_name]["trajectories"] = [f.resolve() for f in task_trajs]
-                    traj_files.extend([str(f.resolve()) for f in task_trajs])
+                #task_trajs = list(task_dir.glob("trajs_files/*.extxyz"))
+                #if task_trajs:
+                #    task_results[task_name]["trajectories"] = [f.resolve() for f in task_trajs]
             
             # Update result with organized file information
             result.update({
-                "task_results": task_results,
-                "all_trajectory_files": traj_files,
-                "all_log_files": log_files,
-                "all_status_files": status_files,
-                "num_tasks": len(task_dirs)
+                #"task_results": task_results,
+                "successful_trajectory_files": successful_traj_files,
+                "failed_tasks": failed_tasks,
+                "num_tasks": len(task_dirs),
+                "num_successful": len(task_dirs) - len(failed_tasks),
+                "num_failed": len(failed_tasks)
             })
             
-            logging.info(f"Found {len(task_dirs)} tasks with {len(traj_files)} trajectory files")
+            logging.info(f"Found {len(task_dirs)} tasks: {len(task_dirs) - len(failed_tasks)} successful, {len(failed_tasks)} failed")
+            logging.info(f"Successful trajectory files: {len(successful_traj_files)}")
         
         else:
             logging.error("Molecular dynamics batch run failed or no download path found.")
