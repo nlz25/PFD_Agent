@@ -69,7 +69,7 @@ Response format
 - Plan: 1–3 bullets describing the immediate next step(s).
 - Action: the exact tool you will call.
 - Result: brief summary with key outputs and absolute paths.
-- Next: the immediate follow-up or final recap. Transfer back to parent agent if done.
+- Next: the immediate follow-up or final recap.
 """
 
 

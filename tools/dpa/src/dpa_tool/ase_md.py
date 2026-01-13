@@ -324,18 +324,20 @@ class RunMDTask(OP):
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
             
-            # instantiate calculator
-            calc = DP(model=model_path, head=head)
-            
-            # read initial structure
-            atoms = read(ase_conf_name, index=0)
-            atoms.calc = calc
-            
-            # create trajectory directory
             traj_dir = Path("trajs_files")
             traj_dir.mkdir(parents=True, exist_ok=True)
             
             try:
+                # instantiate calculator
+                logger.info("Setting calculator")
+                calc = DP(model=model_path, head=head)
+            
+                # read initial structure
+                atoms = read(ase_conf_name, index=0)
+                atoms.calc = calc
+            
+                # create trajectory directory
+                
                 logger.info("Starting molecular dynamics simulation")
                 logger.info(f"Number of atoms: {len(atoms)}")
                 logger.info(f"Number of stages: {len(stages)}")
@@ -398,8 +400,15 @@ class RunMDTask(OP):
                 
                 with open("status.json", 'w') as fp:
                     json.dump(status_info, fp, indent=2)
+                
+                # Ensure log file exists for return
+                if not log_file.exists():
+                    log_file.write_text(f"MD simulation failed: {str(e)}\n")
+    
+                if not traj_dir.exists():
+                    traj_dir.mkdir(parents=True, exist_ok=True)
                     
-                raise TransientError(f"ASE MD failed: {e}")
+                #raise TransientError(f"ASE MD failed: {e}")
             finally:
                 # Remove file handler to avoid accumulation
                 logger.removeHandler(file_handler)
