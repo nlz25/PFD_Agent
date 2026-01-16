@@ -18,11 +18,12 @@ import glob
 from ase.io import read, write
 from ase.atoms import Atoms
 import dpdata
+from deepmd.calculator import DP
 from dargs import (
     Argument
 )
 
-from .utils import run_command
+from .utils import run_command, dflow_remote_execution, generate_work_path
 
 DPA1_CONFIG_TEMPLATE = {
     "model": {
@@ -497,6 +498,27 @@ def _prepare_training_datasets(
     return train_paths, valid_paths_refs
 
 
+@dflow_remote_execution(
+    artifact_inputs={
+        "train_data": List[Path],
+        "valid_data": List[Path],
+    },
+    artifact_outputs={
+        "model": Path,
+        "log": Path,
+    },
+    parameter_inputs={
+        "workdir": Path,
+        "config": Dict[str, Any],
+        "command": Dict[str, Any],
+        "model_path": Path,  # Changed to parameter since it can be None
+    },
+    parameter_outputs={
+        "message": str,
+        "status": str,
+    },
+    op_name="DPTrainingOP"
+)
 def _run_dp_training(
     workdir: Path,
     config: Dict[str, Any],
@@ -504,54 +526,66 @@ def _run_dp_training(
     train_data: List[Path],
     valid_data: List[Path],
     model_path: Optional[Path],
-) -> Tuple[Path, Path, str]:
-    workdir.mkdir(parents=True, exist_ok=True)
-    dp_command = command.get("command", "dp").split()
-    impl = command.get("impl", "tensorflow")
-    if impl not in {"tensorflow", "pytorch"}:
-        raise ValueError("command.impl must be either 'tensorflow' or 'pytorch'.")
-    if impl == "pytorch":
-        dp_command.append("--pt")
+) -> Dict[str, Any]:
+    """
+    Run DeepPotential training (supports both local and remote execution via decorator).
+    
+    Returns:
+        Dict with keys:
+            - model: Path to trained model file
+            - log: Path to training log file
+            - message: Status/error message
+    """
+    try:
+        workdir.mkdir(parents=True, exist_ok=True)
+        dp_command = command.get("command", "dp").split()
+        impl = command.get("impl", "tensorflow")
+        if impl not in {"tensorflow", "pytorch"}:
+            raise ValueError("command.impl must be either 'tensorflow' or 'pytorch'.")
+        if impl == "pytorch":
+            dp_command.append("--pt")
+            
+        #raise NotImplementedError("The current DP training tool only supports TensorFlow backend.")
 
-    finetune_mode = bool(command.get("finetune_mode", False))
-    finetune_args = command.get("finetune_args", "")
-    train_args = command.get("train_args", "")
-    mixed_type = bool(command.get("mixed_type", False))
+        finetune_mode = bool(command.get("finetune_mode", False))
+        finetune_args = command.get("finetune_args", "")
+        train_args = command.get("train_args", "")
+        mixed_type = bool(command.get("mixed_type", False))
 
-    train_paths, valid_paths = _prepare_training_datasets(workdir, train_data, valid_data, mixed_type)
-    auto_prob_str = "prob_sys_size"
-    template = build_training_template(config, finetune_mode)
-    config_payload = write_data_to_input_script(template, train_paths, auto_prob_str, valid_paths)
-    config_payload["training"]["disp_file"] = "lcurve.out"
+        train_paths, valid_paths = _prepare_training_datasets(workdir, train_data, valid_data, mixed_type)
+        auto_prob_str = "prob_sys_size"
+        template = build_training_template(config, finetune_mode)
+        config_payload = write_data_to_input_script(template, train_paths, auto_prob_str, valid_paths)
+        config_payload["training"]["disp_file"] = "lcurve.out"
 
-    train_script_path = workdir / TRAIN_SCRIPT_NAME
-    with open(train_script_path, "w") as fp:
-        json.dump(config_payload, fp, indent=4)
+        train_script_path = workdir / TRAIN_SCRIPT_NAME
+        with open(train_script_path, "w") as fp:
+            json.dump(config_payload, fp, indent=4)
 
-    init_model_path: Optional[Path] = None
-    if model_path is not None:
-        resolved_model = Path(model_path).expanduser().resolve()
-        if finetune_mode:
-            init_model_path = workdir / resolved_model.name
-            if init_model_path.exists():
-                if init_model_path.is_symlink() or init_model_path.is_file():
-                    init_model_path.unlink()
-            init_model_path.symlink_to(resolved_model)
-        else:
-            init_model_path = resolved_model
+        init_model_path: Optional[Path] = None
+        if model_path is not None:
+            resolved_model = Path(model_path).expanduser().resolve()
+            if finetune_mode:
+                init_model_path = workdir / resolved_model.name
+                if init_model_path.exists():
+                    if init_model_path.is_symlink() or init_model_path.is_file():
+                        init_model_path.unlink()
+                init_model_path.symlink_to(resolved_model)
+            else:
+                init_model_path = resolved_model
 
-    command_list = _make_train_command(dp_command, TRAIN_SCRIPT_NAME, init_model_path, finetune_mode, finetune_args, train_args)
-    log_file_path = workdir / TRAIN_LOG_FILE
-    with open(log_file_path, "w") as fplog:
-        ret, out, err = run_command(
+        command_list = _make_train_command(dp_command, TRAIN_SCRIPT_NAME, init_model_path, finetune_mode, finetune_args, train_args)
+        log_file_path = workdir / TRAIN_LOG_FILE
+        with open(log_file_path, "w") as fplog:
+            ret, out, err = run_command(
             command_list,
             raise_error=False,
             try_bash=False,
             interactive=False,
             cwd=str(workdir),
         )
-        if ret != 0:
-            logging.error(
+            if ret != 0:
+                logging.error(
                 "".join(
                     (
                         "dp train failed\n",
@@ -564,23 +598,23 @@ def _run_dp_training(
                     )
                 )
             )
-            raise RuntimeError(f"dp train failed (see log)\nstdout:\n{out}\nstderr:\n{err}")
-        fplog.write("#=================== train std out ===================\n")
-        fplog.write(out)
-        fplog.write("#=================== train std err ===================\n")
-        fplog.write(err)
+                raise RuntimeError(f"dp train failed (see log)\nstdout:\n{out}\nstderr:\n{err}")
+            fplog.write("#=================== train std out ===================\n")
+            fplog.write(out)
+            fplog.write("#=================== train std err ===================\n")
+            fplog.write(err)
 
-    compat_file = workdir / "input_v2_compat.json"
-    if finetune_mode and compat_file.exists():
-        shutil.copy2(compat_file, train_script_path)
+        compat_file = workdir / "input_v2_compat.json"
+        if finetune_mode and compat_file.exists():
+            shutil.copy2(compat_file, train_script_path)
 
-    if impl == "pytorch":
-        model_file = workdir / "model.ckpt.pt"
-    else:
-        ret, out, err = run_command(["dp", "freeze", "-o", "frozen_model.pb"], raise_error=False, cwd=str(workdir))
-        if ret != 0:
-            logging.error(
-                "".join(
+        if impl == "pytorch":
+            model_file = workdir / "model.ckpt.pt"
+        else:
+            ret, out, err = run_command(["dp", "freeze", "-o", "frozen_model.pb"], raise_error=False, cwd=str(workdir))
+            if ret != 0:
+                logging.error(
+                    "".join(
                     (
                         "dp freeze failed\n",
                         "out msg: ",
@@ -592,88 +626,138 @@ def _run_dp_training(
                     )
                 )
             )
-            raise RuntimeError("dp freeze failed")
-        model_file = workdir / "frozen_model.pb"
+                raise RuntimeError(f"dp freeze failed: {err}")
+            model_file = workdir / "frozen_model.pb"
 
-    return model_file.resolve(), log_file_path.resolve(), err
+        return {
+            "status": "success",
+            "model": model_file.resolve(),
+            "log": log_file_path.resolve(),
+            "message": "Training completed successfully"
+        }
+    except Exception as e:
+        logging.error(f"Error in training: {str(e)}")
+        return {
+            "status": "error",
+            "model": workdir / "model.ckpt.pt",
+            "log": workdir / TRAIN_LOG_FILE,
+            "message": f"Training failed: {e}"
+        }
 
-
-def _evaluate_trained_model(workdir: Path, model_file: Path, test_data: List[Path]) -> List[Dict[str, Any]]:
-    if not test_data:
-        return []
+@dflow_remote_execution(
+    artifact_inputs={
+        "model_file": Path,
+        "test_data": List[Path],
+    },
+    artifact_outputs={
+        "output_dir": Path,
+    },
+    parameter_inputs={
+        "workdir": Path,
+        "head": str,
+    },
+    parameter_outputs={
+        "test_metrics": Dict[str, Any],
+        "message": str,
+        "status": str,
+    },
+    op_name="DPModelTestOP"
+)
+def _evaluate_trained_model(
+    workdir: Path, 
+    model_file: Path, 
+    test_data: List[Path],
+    head: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Evaluate a trained Deep Potential model on test datasets (supports remote execution).
+    
+    Returns:
+        Dict with keys:
+            - output_dir: Path to test output directory
+            - test_metrics: JSON string of test metrics list
+            - message: Status/error message
+    """
     try:
         from deepmd.calculator import DP as DeepmdCalculator  # type: ignore
-    except Exception as exc:
-        raise RuntimeError(
-            "Failed to import deepmd ASE calculator (deepmd.calculator.DP). "
-            "Install deepmd-kit with ASE support or run evaluation externally."
-        ) from exc
+        out_dir = workdir / "test_output"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        if not model_file.exists():
+            raise FileNotFoundError(f"Model file not found: {model_file}")
+        calc = DeepmdCalculator(model=str(model_file), head=head)
+        results: Dict[str, Any] = {}
+    
+        for idx, data_path in enumerate(test_data):
+            atoms_ls: List[Atoms] = read(str(data_path), index=":")
+            pred_e: List[float] = []
+            lab_e: List[float] = []
+            pred_f: List[float] = []
+            lab_f: List[float] = []
+            atom_num: List[int] = []
+            for atoms in atoms_ls:
+                lab_e.append(atoms.get_potential_energy())
+                lab_f.append(atoms.get_forces().flatten())
+                atoms.calc = calc
+                pred_e.append(atoms.get_potential_energy())
+                pred_f.append(atoms.get_forces().flatten())
+                atom_num.append(atoms.get_number_of_atoms())
 
-    out_dir = workdir / "test_output"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    if not model_file.exists():
-        raise FileNotFoundError(f"Model file not found: {model_file}")
-    calc = DeepmdCalculator(model=str(model_file))
-    results: List[Dict[str, Any]] = []
-    for idx, data_path in enumerate(test_data):
-        atoms_ls: List[Atoms] = read(str(data_path), index=":")
-        pred_e: List[float] = []
-        lab_e: List[float] = []
-        pred_f: List[float] = []
-        lab_f: List[float] = []
-        atom_num: List[int] = []
-        for atoms in atoms_ls:
-            lab_e.append(atoms.get_potential_energy())
-            lab_f.append(atoms.get_forces().flatten())
-            atoms.calc = calc
-            pred_e.append(atoms.get_potential_energy())
-            pred_f.append(atoms.get_forces().flatten())
-            atom_num.append(atoms.get_number_of_atoms())
+            atom_num_arr = np.array(atom_num)
+            pred_e_arr = np.array(pred_e)
+            lab_e_arr = np.array(lab_e)
+            pred_e_atom = pred_e_arr / atom_num_arr
+            lab_e_atom = lab_e_arr / atom_num_arr
+            pred_f_arr = np.hstack(pred_f)
+            lab_f_arr = np.hstack(lab_f)
 
-        atom_num_arr = np.array(atom_num)
-        pred_e_arr = np.array(pred_e)
-        lab_e_arr = np.array(lab_e)
-        pred_e_atom = pred_e_arr / atom_num_arr
-        lab_e_atom = lab_e_arr / atom_num_arr
-        pred_f_arr = np.hstack(pred_f)
-        lab_f_arr = np.hstack(lab_f)
+            np.savetxt(
+                str(out_dir / (f"test_{idx:02d}_.energy.txt")),
+                np.column_stack((lab_e_arr, pred_e_arr)),
+                header='',
+                comments='#',
+                fmt="%.6f",
+            )
+            np.savetxt(
+                str(out_dir / (f"test_{idx:02d}_.energy_per_atom.txt")),
+                np.column_stack((lab_e_atom, pred_e_atom)),
+                header='',
+                comments='#',
+                fmt="%.6f",
+            )
+            np.savetxt(
+                str(out_dir / (f"test_{idx:02d}_.force.txt")),
+                np.column_stack((lab_f_arr, pred_f_arr)),
+                header='',
+                comments='#',
+                fmt="%.6f",
+            )
 
-        np.savetxt(
-            str(out_dir / (f"test_{idx:02d}_.energy.txt")),
-            np.column_stack((lab_e_arr, pred_e_arr)),
-            header='',
-            comments='#',
-            fmt="%.6f",
-        )
-        np.savetxt(
-            str(out_dir / (f"test_{idx:02d}_.energy_per_atom.txt")),
-            np.column_stack((lab_e_atom, pred_e_atom)),
-            header='',
-            comments='#',
-            fmt="%.6f",
-        )
-        np.savetxt(
-            str(out_dir / (f"test_{idx:02d}_.force.txt")),
-            np.column_stack((lab_f_arr, pred_f_arr)),
-            header='',
-            comments='#',
-            fmt="%.6f",
-        )
-
-        metrics = {
-            "system_idx": f"{idx:02d}",
-            "mae_e": _mae(pred_e_arr, lab_e_arr),
-            "rmse_e": _rmse(pred_e_arr, lab_e_arr),
-            "mae_e_atom": _mae(pred_e_atom, lab_e_atom),
-            "rmse_e_atom": _rmse(pred_e_atom, lab_e_atom),
-            "mae_f": _mae(pred_f_arr, lab_f_arr) if lab_f_arr.size else float('nan'),
-            "rmse_f": _rmse(pred_f_arr, lab_f_arr) if lab_f_arr.size else float('nan'),
-            "n_frames": float(len(atoms_ls)),
+            metrics = {
+                "mae_e": _mae(pred_e_arr, lab_e_arr),
+                "rmse_e": _rmse(pred_e_arr, lab_e_arr),
+                "mae_e_atom": _mae(pred_e_atom, lab_e_atom),
+                "rmse_e_atom": _rmse(pred_e_atom, lab_e_atom),
+                "mae_f": _mae(pred_f_arr, lab_f_arr) if lab_f_arr.size else float('nan'),
+                "rmse_f": _rmse(pred_f_arr, lab_f_arr) if lab_f_arr.size else float('nan'),
+                "n_frames": float(len(atoms_ls)),
         }
-        logging.info(f"Test completed on {len(atoms_ls)} frames. Metrics: {metrics}")
-        results.append(metrics)
+            logging.info(f"Test completed on {len(atoms_ls)} frames. Metrics: {metrics}")
+            results[f"{idx:02d}"] = metrics
 
-    return results
+        return {
+            "status": "success",
+            "output_dir": out_dir.resolve(),
+            "test_metrics": results,
+            "message": f"Model evaluation completed on {len(test_data)} dataset(s)"
+            }
+    except Exception as e:
+        logging.error(f"Error in model evaluation: {str(e)}")
+        return {
+            "status": "error",
+            "output_dir": workdir / "test_output",
+            "test_metrics": {},
+            "message": f"Model evaluation failed: {e}"
+            }
 
 def _get_system_path(
     data_dir:Union[str,Path]
@@ -688,3 +772,83 @@ def _mae(a, b):
 def _rmse(a, b):
     mask = np.isfinite(a) & np.isfinite(b)
     return float(np.sqrt(np.mean((a[mask] - b[mask]) ** 2))) if mask.any() else float('nan')
+
+
+@dflow_remote_execution(
+    artifact_inputs={
+        "structure_path": List[Path],
+        "model_path": Path,
+    },
+    artifact_outputs={
+        "labeled_data": Path,
+    },
+    parameter_inputs={
+        "head": str,
+    },
+    parameter_outputs={
+        "message": str,
+    },
+    op_name="DPInferenceOP",
+)
+def model_inference(
+    structure_path: Union[List[Path], Path],
+    model_path: Optional[Path] = None,
+    head: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Calculate energy and force for given structures using a Deep Potential model.
+
+    Parameters
+    - structure_path: List[Path] | Path
+        Path(s) to structure file(s) (extxyz/xyz/vasp/...). Can be a multi-frame file or a list of files.
+    - model_style: str
+        ASE calculator key (e.g., "dpa").
+    - model_path: Path
+        Model file(s) or URL(s) for ML calculators. 
+    - head (str, optional): For pretrained DPA multi-head models, an available head should be provided. 
+        The head is defaulted to "MP_traj_v024_alldata_mixu" for multi-task model if not specified. 
+
+    Returns
+    - Dict[str, Any]
+        Dictionary containing paths to labeled data file and logs.
+    """
+    try:
+        calc=DP(
+            model=model_path, 
+            head=head
+            )    
+        
+        atoms_ls=[]
+        if isinstance(structure_path, Path):
+            structure_path = [structure_path]
+        for path in structure_path:
+            read_atoms = read(path, index=":")
+            if isinstance(read_atoms, Atoms):
+                atoms_ls.append(read_atoms)
+            else:
+                atoms_ls.extend(read_atoms)
+        
+        for atoms in atoms_ls:
+            atoms.calc = calc
+            energy= atoms.get_potential_energy()
+            forces=atoms.get_forces()
+            stress = atoms.get_stress()
+            atoms.calc.results.clear()
+            atoms.info['energy'] = energy
+            atoms.set_array('forces', forces)
+            atoms.info['stress'] = stress
+        labeled_data = "ase_results.extxyz"
+        write(labeled_data, atoms_ls, format="extxyz")
+        
+        result = {
+            "status": "success",
+            "labeled_data": str(Path(labeled_data).resolve()),
+            "message": f"ASE calculation completed for {len(atoms_ls)} structures."
+        }
+    except Exception as e:
+        logging.error(f"Error in ase_calculation: {str(e)}")
+        result={
+            "status": "error",
+            "labeled_data": None,
+            "message": f"ASE calculation failed: {e}"
+            }
+    return result   

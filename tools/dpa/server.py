@@ -7,41 +7,25 @@ import traceback
 import uuid
 from typing import Optional, Union, Dict, Any, List, Tuple, TypedDict,Literal
 from pathlib import Path
-import numpy as np
-import subprocess
-import sys
-import shlex
-import selectors
-import json
 from jsonschema import validate, ValidationError
 from dotenv import load_dotenv
 
 # ASE / MD imports used by DPA tools
 from ase.io import read, write
-from ase.atoms import Atoms
 from ase.optimize import BFGS
 from ase.constraints import ExpCellFilter
 from deepmd.calculator import DP
-
-from dflow.plugins.dispatcher import (
-    DispatcherExecutor,
-)
-
 from dpa_tool.train import (
     dpa_training_meta,
     normalize_dpa_command,
     normalize_dpa_config,
     _run_dp_training,
     _evaluate_trained_model,
-    _ensure_path_list
+    _ensure_path_list,
+    model_inference as _model_inference,
 )
-
-from dpa_tool.utils import (
-    set_directory,
-    bohrium_config_from_dict
-    )
-
-from dpa_tool.ase_md import _run_molecular_dynamics_batch
+from dpa_tool.ase_md import optimize_structure as _optimize_structure
+from dpa_tool.utils import set_directory
 
 _script_dir = Path(__file__).parent
 load_dotenv(_script_dir / ".env", override=True)
@@ -109,125 +93,6 @@ elif args.model == "fastmcp":
 ## =========================
 ## Utility functions
 ## =========================
-
-def run_command(
-    cmd: Union[List[str], str],
-    raise_error: bool = True,
-    input: Optional[str] = None,
-    try_bash: bool = False,
-    login: bool = True,
-    interactive: bool = True,
-    shell: bool = False,
-    print_oe: bool = False,
-    stdout=None,
-    stderr=None,
-    **kwargs,
-) -> Tuple[int, str, str]:
-    """
-    Run shell command in subprocess
-
-    Parameters:
-    ----------
-    cmd: list of str, or str
-        Command to execute
-    raise_error: bool
-        Wheter to raise an error if the command failed
-    input: str, optional
-        Input string for the command
-    try_bash: bool
-        Try to use bash if bash exists, otherwise use sh
-    login: bool
-        Login mode of bash when try_bash=True
-    interactive: bool
-        Alias of login
-    shell: bool
-        Use shell for subprocess.Popen
-    print_oe: bool
-        Print stdout and stderr at the same time
-    **kwargs:
-        Arguments in subprocess.Popen
-
-    Raises:
-    ------
-    AssertionError:
-        Raises if the error failed to execute and `raise_error` set to `True`
-
-    Return:
-    ------
-    return_code: int
-        The return code of the command
-    out: str
-        stdout content of the executed command
-    err: str
-        stderr content of the executed command
-    """
-    if print_oe:
-        stdout = sys.stdout
-        stderr = sys.stderr
-
-    if isinstance(cmd, str):
-        if shell:
-            cmd = [cmd]
-        else:
-            cmd = cmd.split()
-    elif isinstance(cmd, list):
-        cmd = [str(x) for x in cmd]
-
-    if try_bash:
-        arg = "-lc" if (login and interactive) else "-c"
-        script = "if command -v bash 2>&1 >/dev/null; then bash %s " % arg + \
-            shlex.quote(" ".join(cmd)) + "; else " + " ".join(cmd) + "; fi"
-        cmd = [script]
-        shell = True
-
-    with subprocess.Popen(
-        args=cmd,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        shell=shell,
-        **kwargs,
-    ) as sub:
-        if stdout is not None or stderr is not None:
-            if input is not None:
-                sub.stdin.write(bytes(input, encoding=sys.stdout.encoding))
-                sub.stdin.close()
-            out = ""
-            err = ""
-            sel = selectors.DefaultSelector()
-            sel.register(sub.stdout, selectors.EVENT_READ)
-            sel.register(sub.stderr, selectors.EVENT_READ)
-            stdout_eof = False
-            stderr_eof = False
-            while not (stdout_eof and stderr_eof):
-                for key, _ in sel.select():
-                    line = key.fileobj.readline().decode(sys.stdout.encoding)
-                    if not line:
-                        if key.fileobj is sub.stdout:
-                            stdout_eof = True
-                        if key.fileobj is sub.stderr:
-                            stderr_eof = True
-                        continue
-                    if key.fileobj is sub.stdout:
-                        if stdout is not None:
-                            stdout.write(line)
-                            stdout.flush()
-                        out += line
-                    else:
-                        if stderr is not None:
-                            stderr.write(line)
-                            stderr.flush()
-                        err += line
-            sub.wait()
-        else:
-            out, err = sub.communicate(bytes(
-                input, encoding=sys.stdout.encoding) if input else None)
-            out = out.decode(sys.stdout.encoding)
-            err = err.decode(sys.stdout.encoding)
-        return_code = sub.poll()
-    if raise_error:
-        assert return_code == 0, "Command %s failed: \n%s" % (cmd, err)
-    return return_code, out, err
 
 
 def generate_work_path(create: bool = True) -> str:
@@ -447,8 +312,9 @@ def check_input(
 
 class TrainingResult(TypedDict):
     """Result structure for model training"""
-    model: Path
-    log: Path
+    status: str
+    model: str
+    log: str
     message: str
     test_metrics: Optional[List[Dict[str, Any]]]
 
@@ -459,8 +325,8 @@ def training(
     model_path: Optional[Path] = None,
     command: Optional[Dict[str, Any]] = None,#load_json_file(COMMAND_PATH),
     valid_data: Optional[Union[List[Path], Path]] = None,
-    test_data: Optional[Union[List[Path], Path]] = None,
-) -> TrainingResult:
+    #test_data: Optional[Union[List[Path], Path]] = None,
+) -> Dict[str, Any]:
     """Train a Deep Potential (DP) machine learning force field model. This tool should only be executed once all necessary inputs are gathered and validated.
        Always use 'train_input_doc' to get the template for 'config' and 'command', and use 'check_input' to validate them before calling this tool.
     
@@ -469,6 +335,8 @@ def training(
         command: Command parameters for training (You can find an example for `command` from the 'train_input_doc' tool').
         train_data: Path to the training dataset (required).
         model_path (Path, optional): Path to pre-trained base model. Required for model fine-tuning.
+        valid_data (Path | List[Path], optional): Path(s) to validation dataset(s).
+        test_data (Path | List[Path], optional): Path(s) to test dataset(s) for post-training evaluation.
     
     """
     try:
@@ -484,27 +352,18 @@ def training(
 
         train_paths = _ensure_path_list(train_data)
         valid_paths = _ensure_path_list(valid_data)
-        model, log, message = _run_dp_training(
+        
+
+        train_result = _run_dp_training(
             workdir=work_path,
             config=normalized_config,
             command=normalized_command,
             train_data=train_paths,
             valid_data=valid_paths,
             model_path=model_path,
+            workflow_name=f"dpa-training-{int(time.time())}",
         )
-
-        logging.info("Training completed!")
-        test_metrics: Optional[List[Dict[str, Any]]] = None
-        test_paths = _ensure_path_list(test_data)
-        if test_paths:
-            test_metrics = _evaluate_trained_model(work_path, model, test_paths)
-        result = {
-            "status": "success",
-            "model": str(model.resolve()),
-            "log": str(log.resolve()),
-            "message": message,
-            "test_metrics": test_metrics,
-        }
+        result = train_result
 
     except Exception as e:
         logging.exception("Training failed")
@@ -516,17 +375,91 @@ def training(
         }
     return result
 
+@mcp.tool()
+def model_test(
+    model_path: Path,
+    test_data: Union[List[Path], Path],
+    head: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Evaluate and validate the accuracy of a Deep Potential model on a test dataset.
+    
+    This tool computes prediction accuracy metrics (MAE, RMSE) for energies and forces
+    by comparing model predictions against reference labeled data.
+    
+    Args:
+        model_path: Path to the trained DPA model file (.pt or .pb).
+        test_data: Path(s) to test dataset file(s) in extxyz format with labeled energies and forces.
+                   Can be a single Path or a list of Paths.
+        head: Optional head name to use in multitask evaluation.
+    
+    Returns:
+        Dictionary containing:
+            - status: "success" or "error"
+            - test_metrics: List of metric dictionaries, one per test dataset, each containing:
+                * system_idx: Index identifier for the test dataset
+                * mae_e: Mean absolute error for total energy (eV)
+                * rmse_e: Root mean square error for total energy (eV)
+                * mae_e_atom: Mean absolute error for energy per atom (eV/atom)
+                * rmse_e_atom: Root mean square error for energy per atom (eV/atom)
+                * mae_f: Mean absolute error for forces (eV/Å)
+                * rmse_f: Root mean square error for forces (eV/Å)
+                * n_frames: Number of structures tested
+            - output_dir: Path to directory containing detailed comparison files
+            - message: Status or error message
+    
+    Example:
+        >>> result = model_test(
+        ...     model_path=Path("model.ckpt.pt"),
+        ...     test_data=Path("test_structures.extxyz"),
+        ...     head="MP_traj_v024_alldata_mixu"
+        ... )
+        >>> print(result["test_metrics"][0]["rmse_e_atom"])
+        0.0023  # eV/atom
+    """
+    try:
+        work_path = Path(generate_work_path()).absolute()
+        work_path.mkdir(parents=True, exist_ok=True)
+        test_paths = _ensure_path_list(test_data)
+        logging.info(f"Evaluating model {model_path} on {len(test_paths)} test dataset(s)")
+        eval_result = _evaluate_trained_model(
+            workdir=work_path, 
+            model_file=model_path, 
+            test_data=test_paths,
+            head=head
+        )
+        return eval_result
+    except Exception as e:
+        logging.exception("Model testing failed")
+        return {
+            "status": "error",
+            "output_dir": None,
+            "test_metrics": None,
+            "message": f"Model evaluation failed: {e}"
+        }
+
 ## ===========================
 ## DPA calculator tool implementations
 ## ==========================
-
 @mcp.tool()
 def get_base_model_path(
     model_path: Optional[Path]=None
     ) -> Dict[str,Any]:
-    """Resolve a usable base model path before using `run_molecular_dynamics` tool."""
+    """Resolve a usable base model path before using `run_molecular_dynamics` tool.
+    
+    Args:
+        model_path: Path to a specific DPA model file. 
+            IMPORTANT: If you want to use the default model, DO NOT provide this parameter at all.
+            Do not pass None, "None", or empty string - simply omit the parameter entirely.
+    
+    Returns:
+        Dict containing 'base_model_path' key with the resolved Path, or None if not found.
+    """
 
-    source = model_path if model_path not in (None, "") else default_dpa_model_path
+    # Handle cases where LLM might pass string "None" or empty string
+    if isinstance(model_path, str) and model_path.lower() in ("none", ""):
+        source = default_dpa_model_path
+    else:
+        source = model_path if model_path not in (None, "") else default_dpa_model_path
     if not source:
         logging.error("No model path provided and no default_dpa_model_path configured.")
         return {"base_model_path": None}
@@ -546,7 +479,7 @@ def get_base_model_path(
 @mcp.tool()
 def optimize_structure( 
     input_structure: Path,
-    model_path: Optional[Path]= None,
+    model_path: Path,
     head: Optional[str]= None,
     force_tolerance: float = 0.01, 
     max_iterations: int = 100, 
@@ -576,50 +509,20 @@ def optimize_structure(
             - message (str): Status or error message describing the outcome.
     """
     try:
-        base_name = input_structure.stem
-        
-        logging.info(f"Reading structure from: {input_structure}")
-        atoms = read(str(input_structure))
-       
-        # Setup calculator
-        calc=DP(model=model_path, head=head)  
-        atoms.calc = calc
-
-        traj_file = f"{base_name}_optimization_traj.extxyz"  
-        if Path(traj_file).exists():
-            logging.warning(f"Overwriting existing trajectory file: {traj_file}")
-            Path(traj_file).unlink()
-
-        logging.info("Starting structure optimization...")
-
-        if relax_cell:
-            logging.info("Using cell relaxation (ExpCellFilter)...")
-            ecf = ExpCellFilter(atoms)
-            optimizer = BFGS(ecf, trajectory=traj_file)
-            optimizer.run(fmax=force_tolerance, steps=max_iterations)
-        else:
-            optimizer = BFGS(atoms, trajectory=traj_file)
-            optimizer.run(fmax=force_tolerance, steps=max_iterations)
-            
         work_path=Path(generate_work_path())
         work_path = work_path.expanduser().resolve()
         work_path.mkdir(parents=True, exist_ok=True)
+        with set_directory(work_path):
+            result = _optimize_structure(
+                input_structure=input_structure,
+                model_path=model_path,
+                head=head,
+                force_tolerance=force_tolerance,
+                max_iterations=max_iterations,
+                relax_cell=relax_cell,
+            )
 
-        output_file = work_path / f"{base_name}_optimized.cif"
-        write(output_file, atoms)
-        final_energy = float(atoms.get_potential_energy())
-
-        logging.info(
-            f"Optimization completed in {optimizer.nsteps} steps. "
-            f"Final energy: {final_energy:.4f} eV"
-        )
-
-        return {
-            "optimized_structure": Path(output_file),
-            "optimization_traj": Path(traj_file),
-            "final_energy": final_energy,
-            "message": f"Successfully completed in {optimizer.nsteps} steps",
-        }
+        return result
 
     except Exception as e:
         logging.error(f"Optimization failed: {str(e)}", exc_info=True)
@@ -631,12 +534,12 @@ def optimize_structure(
         }
 
 @mcp.tool()
-def ase_calculation(
+def model_inference(
     structure_path: Union[List[Path], Path],
     model_path: Optional[Path] = None,
     head: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Perform energy and force (and stress) calculation on given structures using a Deep Potential model.
+    """Calculate energy and force for given structures using a Deep Potential model.
 
     Parameters
     - structure_path: List[Path] | Path
@@ -656,58 +559,30 @@ def ase_calculation(
         work_path=Path(generate_work_path())
         work_path = work_path.expanduser().resolve()
         work_path.mkdir(parents=True, exist_ok=True)
+        with set_directory(work_path):
+            results = _model_inference(
+                structure_path=structure_path,
+                model_path=model_path,
+                head=head,
+            )
         
-        calc=DP(
-            model=model_path, 
-            head=head
-            )    
-        
-        atoms_ls=[]
-        if isinstance(structure_path, Path):
-            structure_path = [structure_path]
-        for path in structure_path:
-            read_atoms = read(path, index=":")
-            if isinstance(read_atoms, Atoms):
-                atoms_ls.append(read_atoms)
-            else:
-                atoms_ls.extend(read_atoms)
-        
-        for atoms in atoms_ls:
-            atoms.calc = calc
-            energy= atoms.get_potential_energy()
-            forces=atoms.get_forces()
-            stress = atoms.get_stress()
-            atoms.calc.results.clear()
-            atoms.info['energy'] = energy
-            atoms.set_array('forces', forces)
-            atoms.info['stress'] = stress
-        labeled_data = work_path / "ase_results.extxyz"
-        write(labeled_data, atoms_ls, format="extxyz")
-        
-        result = {
-            "status": "success",
-            "labeled_data": str(labeled_data.resolve()),
-            "message": f"ASE calculation completed for {len(atoms_ls)} structures."
-        }
-    
     except Exception as e:
         logging.error(f"Error in ase_calculation: {str(e)}")
-        result={
+        results={
             "status": "error",
+            "labeled_data": None,
             "message": f"ASE calculation failed: {e}"
             }
-    return result   
+    return results   
     
 @mcp.tool()
 def run_molecular_dynamics(
     structure_paths: Union[Path, List[Path]],
     model_path: Path,
-    config: Dict[str, Any],
-    workflow_name: str = "molecular-dynamics-batch",
-    #mode: Literal["debug", "bohrium"] = "debug",
-    #prep_md_config: Optional[Dict[str, Any]] = None,
-    #run_md_config: Optional[Dict[str, Any]] = None,
-):
+    stages: List[Dict[str, Any]],
+    head: Optional[str]=None,
+    save_interval_steps: int =100,
+    )-> Dict[str, Any]:   
     """
     [Modified from AI4S-agent-tools/servers/DPACalculator] Run a multi-stage molecular dynamics simulation using Deep Potential. 
 
@@ -777,167 +652,36 @@ def run_molecular_dynamics(
         ...     seed=42
         ... )
     """
-    import dpa_tool
-    import dflow
-    import ase 
-    
-    mode=os.environ.get("DPA_SUBMIT_TYPE", "bohrium")
-    
-    work_path=Path(generate_work_path())
-    work_path = work_path.resolve()
-    work_path.mkdir(parents=True, exist_ok=True)
-    python_packages=[]
-    python_packages.append(list(dpa_tool.__path__)[0])
-    python_packages.append(list(ase.__path__)[0])
-    python_packages.append(list(dflow.__path__)[0])
-    
-    print(python_packages)
-        
-    if mode == 'bohrium':
-        debug=False
-        try:
-            bohrium_config_from_dict(
-                {
-                    "username": os.environ["BOHRIUM_USERNAME"],
-                    "password": os.environ["BOHRIUM_PASSWORD"],
-                    "project_id": os.environ["BOHRIUM_PROJECT_ID"]}
-                )
-            run_md_config={
-                "template_config": {
-                    "image":os.environ["BOHRIUM_DPA_IMAGE"],
-                    "python_packages":python_packages
-                    },
-                "template_slice_config": {"group_size": 1, "pool_size": 1},
-                "executor": DispatcherExecutor(
-                    image_pull_policy="IfNotPresent",
-                    machine_dict={
-                        "batch_type": "Bohrium",
-                        "context_type": "Bohrium",
-                        "remote_profile": {
-                            "input_data": {
-                            "job_type": "container",
-                            "platform": "ali",
-                            "scass_type": os.environ["BOHRIUM_DPA_MACHINE"]}}})}
-            
-            prep_md_config={
-                "template_config": {
-                    "image":os.environ["BOHRIUM_DPA_IMAGE"],
-                    "python_packages":python_packages
-                    },
-                "executor": DispatcherExecutor(
-                    image_pull_policy="IfNotPresent",
-                    machine_dict={
-                        "batch_type": "Bohrium",
-                        "context_type": "Bohrium",
-                        "remote_profile": {
-                            "input_data": {
-                            "job_type": "container",
-                            "platform": "ali",
-                            "scass_type": "c2_m4_cpu"
-                            }}})}
-            
-            
-        except Exception as e:
-            logging.error("Bohrium configuration failed. Check environment variables.", exc_info=True)
-            return {
-                "status": "error",
-                "message": f"Bohrium configuration failed: {str(e)}"
-            }
-            
-    else:
-        prep_md_config=None
-        run_md_config=None
-        debug= True
-        
-    with set_directory(work_path):
-        result=_run_molecular_dynamics_batch(
-                structure_paths=structure_paths,
-                model_path=model_path,
-                config=config,
-                workflow_name=workflow_name,
-                debug=debug,
-                prep_md_config=prep_md_config,
-                run_md_config=run_md_config
-            )
-        
-        # If successful, scan for result files and organize them
-        if result.get("status") == "success" and "download_path" in result:
-            download_path = Path(result["download_path"])
-            
-            # Scan for task directories and their files
-            task_results = {}
-            failed_tasks = []
-            successful_traj_files = []
-            
-            # Find all task directories
-            task_dirs = list(download_path.glob("task.[0-9]*"))
-            
-            for task_dir in sorted(task_dirs):
-                task_name = task_dir.name
-                task_results[task_name] = {}
-                
-                # Find log files
-                #task_logs = list(task_dir.glob("*.log"))
-                #if task_logs:
-                #    task_results[task_name]["log"] = task_logs[0].resolve()
-                
-                # Find status/json files  
-                task_jsons = list(task_dir.glob("*.json"))
-                if task_jsons:
-                    task_results[task_name]["status_file"] = task_jsons[0].resolve()
-                    
-                    # Read and parse status.json
-                    try:
-                        with open(task_jsons[0], 'r') as f:
-                            status_data = json.load(f)
-                            task_status = status_data.get("status", "unknown")
-                            task_results[task_name]["status"] = task_status
-                            
-                            if task_status == "error":
-                                error_message = status_data.get("message", "No error message available")
-                                failed_tasks.append({
-                                    "task_name": task_name,
-                                    "task_dir": str(task_dir.resolve()),
-                                    "error_message": error_message,
-                                    "error_details": status_data.get("error_details", "")
-                                })
-                                logging.warning(f"Task {task_name} failed: {error_message}")
-                            elif task_status == "success":
-                                # Find trajectory files for successful tasks
-                                task_trajs = list(task_dir.glob("trajs_files/*.extxyz"))
-                                if task_trajs:
-                                    successful_traj_files.extend([str(f.resolve()) for f in task_trajs])
-                    except Exception as e:
-                        logging.error(f"Failed to read status file for {task_name}: {str(e)}")
-                        task_results[task_name]["status"] = "unknown"
-                
-                # Find trajectory files
-                #task_trajs = list(task_dir.glob("trajs_files/*.extxyz"))
-                #if task_trajs:
-                #    task_results[task_name]["trajectories"] = [f.resolve() for f in task_trajs]
-            
-            # Update result with organized file information
-            result.update({
-                #"task_results": task_results,
-                "successful_trajectory_files": successful_traj_files,
-                "failed_tasks": failed_tasks,
-                "num_tasks": len(task_dirs),
-                "num_successful": len(task_dirs) - len(failed_tasks),
-                "num_failed": len(failed_tasks)
-            })
-            
-            logging.info(f"Found {len(task_dirs)} tasks: {len(task_dirs) - len(failed_tasks)} successful, {len(failed_tasks)} failed")
-            logging.info(f"Successful trajectory files: {len(successful_traj_files)}")
-        
+    try:
+        if isinstance(structure_paths, (str, Path)):
+            structure_paths = [Path(structure_paths)]
         else:
-            logging.error("Molecular dynamics batch run failed or no download path found.")
-            result = {
-                "status": "error",
-                "message": "Molecular dynamics batch run failed or no download path found."
+            structure_paths = [Path(p) for p in structure_paths]
+    
+        # Validate inputs
+        for path in structure_paths:
+            if not path.exists():
+                raise FileNotFoundError(f"Structure file not found: {path}")
+        if not model_path.exists():
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+        from dpa_tool.ase_md import _run_md
+        results=_run_md(
+            model_path=model_path,
+            structure_path=structure_paths,
+            stages=stages,
+            head=head,
+            save_interval_steps=save_interval_steps,
+            traj_prefix="traj",
+            seed=42
+        )    
+        return results
+    except Exception as e:
+        logging.error(f"Error in run_molecular_dynamics: {str(e)}")
+        return {
+            "status": "error",
+            "labeled_data": None,
+            "message": f"MD simulation failed: {e}"
             }
-        
-    return result
-
 
 if __name__ == "__main__":
     def create_workpath(work_path=None):
