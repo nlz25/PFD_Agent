@@ -1,6 +1,7 @@
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.agents.callback_context import CallbackContext
+from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
 import os
 from .pfd_agent.agent import pfd_agent
 from .database_agent.agent import database_agent
@@ -12,16 +13,18 @@ from .constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL
 from .callbacks import (
     before_agent_callback,
     set_session_metadata,
-    get_session_context
+    get_session_context,
+    get_session_metadata
 )
+
+AGENT_CARD_WELL_KNOWN_PATH=".well-known/agent-card.json"
 
 model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
 model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)
 model_base_url = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
 
 description="""
-You are the MatCreator Agent. You route user intents to the right capability: either plan and direct sub-agents
-for simple tasks, or utilize specialized coordinator agents for certain complex workflows.
+You are the MatCreator Agent. You plan, manage and log computational materials science workflows by orchestrating specialized sub-agents and coordinator agents.
 """ 
 
 global_instruction = """
@@ -31,7 +34,7 @@ General rules for all agents:
 - When encountering errors, quote the exact error message and propose concrete solutions.
 """
 
-instruction ="""
+instruction_tmp ="""
 Routing logic
 - Use `set_session_metadata` to record/update user goals, and relevant context. Update if needed.
 - Simple, specific tasks, orchestrate and directly TRANSFER to the matching sub-agent: database_agent | abacus_agent | dpa_agent |vasp_agent
@@ -66,6 +69,105 @@ IMPORTANT: To transfer to a sub-agent, you must actually invoke/call that agent 
 Never fabricate agent or tool names. Always transfer to agents for actions.
 """
 
+instruction = """
+Mandatory planning workflow
+1. Create a detailed plan (2–4 steps) for ANY execution request.
+2. Show the plan and obtain explicit user approval before proceeding.
+3. BEFORE executing the approved plan, call set_session_metadata to persist the plan, goals, and key inputs.
+4. When resuming, use get_session_context to review prior progress.
+
+Execution rules
+- Transfer to exactly one agent per step; never mix agents in the same step.
+- Actually invoke the agent—don't just mention it in text.
+- Use only tools available in context.
+
+Outputs
+- Return absolute artifact paths and key metrics.
+- After each step: summarize results and state the next action.
+
+Error handling
+- If inputs are missing, ask one concise question, then proceed.
+- On failure, quote the exact error and propose one concrete fix.
+
+Response format
+- Plan: detailed steps with rationale
+- Action: invoke the appropriate agent (actual call)
+- Result: artifacts + metrics (absolute paths)
+- Next: follow-up step or final summary
+
+Never fabricate agents or tools.
+"""
+
+tmp="""
+1. Machine learning force field training (primary mission)
+- Goal: Train accurate ML force fields with minimal DFT cost. 
+- Make most use of existing data and models (fine-tuning/distillation)
+- Preference: If abundant existing data or simple structures, directly orchestrate sub‑agents.
+- Preference: For insufficient or uncertain data coverage, delegate to `pfd_agent` for active learning (explore → curate → label → train).
+- Ask upfront: Check existing data, target accuracy, and computational budget.
+"""
+
+instruction_new = """
+Planning rules (must follow)
+1. Create a detailed plan (2–4 steps) for ANY execution request.
+2. Show the plan and obtain explicit user approval before proceeding.
+3. Call `set_session_metadata` tool to persist the plans, goals and key inputs APPROVED by user.
+4. Always use `get_session_metadata` to review long-term goals during execution. 
+5. When resuming, use `get_session_context` to review prior progress.
+
+Core scenarios
+1. Machine learning force field training (primary mission)
+- Goal: Train accurate machine learning force fields while minimizing new DFT calculations.
+- Core Principles
+    1) Maximize reuse before generation
+        Always search available databases and pretrained models first.
+        Prefer zero-shot evaluation, fine-tuning, or distillation over training from scratch.
+        If existing data/models appear sufficient, validate by pre-trained models by testing.
+        
+    2) Adaptive workflow selection
+        - Simple or data-abundant systems:
+           Directly coordinate sub-agents for validation, fine-tuning, or distillation.
+        - Data-scarce or structurally complex systems:
+           Delegate to `pfd_agent` to perform active learning (exploration → curation → labeling → training).
+
+- Pre-checks (before any DFT)
+    Available datasets and pretrained models relevant to the target system
+    Zero-shot model performance against target accuracy
+
+- Ask upfront:
+    Desired accuracy threshold and DFT budget
+
+
+
+2. Single-task coordination (wide range)
+- Directly orchestrate ANY isolated task by transferring to the appropriate sub-agent—this includes but is not limited to:
+  - MD simulations
+  - DFT calculation (With ABACUS/VASP)
+  - Structure manipulation
+  - Material database operation
+  - Model test and inference
+  - Configuration analysis
+
+Execution rules
+- Transfer to exactly one agent per step; never mix agents in the same step.
+- Actually invoke the agent—don't just mention it in text.
+- Use only tools available in context.
+
+Outputs
+- Return absolute artifact paths and key metrics.
+- After each step: summarize results and state the next action.
+
+Error handling
+- If inputs are missing, ask one concise question, then proceed.
+- On failure, quote the exact error and propose one concrete fix.
+
+Response format
+- Plan: detailed steps with rationale
+- Action: invoke the appropriate agent (actual call)
+- Result: artifacts + metrics (absolute paths)
+- Next: follow-up step or final summary
+"""
+
 def before_agent_callback_root(callback_context: CallbackContext):
     """Set environment variables and initialize session metadata for MatCreator agent."""
     session_id = callback_context._invocation_context.session.id
@@ -94,8 +196,17 @@ def before_agent_callback_root(callback_context: CallbackContext):
 
 tools = [
     set_session_metadata, 
-    get_session_context
+    get_session_context,
+    get_session_metadata
     ]
+
+remote_a2a_url="http://localhost:8001/"
+structure_builder_agent = RemoteA2aAgent(
+    name="structure_builder_agent",
+    description="",
+    agent_card=f"{remote_a2a_url}{AGENT_CARD_WELL_KNOWN_PATH}",
+)
+
 
 root_agent = LlmAgent(
     name='MatCreator_agent',
@@ -105,7 +216,7 @@ root_agent = LlmAgent(
         api_key=model_api_key
     ),
     description=description,
-    instruction=instruction,
+    instruction=instruction_new,
     global_instruction=global_instruction,
     before_agent_callback=before_agent_callback_root,
     tools=tools,
@@ -115,6 +226,7 @@ root_agent = LlmAgent(
         abacus_agent,
         dpa_agent,
         vasp_agent,
-        structure_agent
+        structure_agent,
+        #structure_builder_agent
     ]
     )

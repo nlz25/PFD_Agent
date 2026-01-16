@@ -142,15 +142,7 @@ def list_calculators() -> List[Dict[str, Any]]:
     return result
 
 
-
-
-# tools hosted by MCP server
-toolset = McpToolset(
-    connection_params=SseServerParams(
-        url="http://localhost:50002/sse", # Or any other MCP server URL
-        sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds
-    ),
-    tool_filter=[
+tool_filter=[
         "check_train_data",
         "check_input",
         "training",
@@ -159,7 +151,15 @@ toolset = McpToolset(
         "optimize_structure",
         "get_base_model_path",
         "ase_calculation",
-    ],
+    ]
+
+# tools hosted by MCP server
+toolset = McpToolset(
+    connection_params=SseServerParams(
+        url="http://localhost:50002/sse", # Or any other MCP server URL
+        sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds
+    ),
+    #tool_filter=tool_filter,
     #executor_map = EXECUTOR_MAP,
     #executor=executor["local"],
     #storage=STORAGE, 

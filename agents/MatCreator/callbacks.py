@@ -178,7 +178,7 @@ def set_session_metadata(
     session_id: Optional[str] = None
 ) -> str:
     """
-    Set or update metadata for the current PFD session.
+    Update session metadata, mandatory when planning new or making significant changes to tasks.
     
     Args:
         workflow_type: Type of workflow (pfd_finetune or pfd_distillation)
@@ -232,7 +232,7 @@ def set_session_metadata(
 
 
 def get_session_metadata(session_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """Get metadata for a PFD session."""
+    """Get the metadata for the current session. Mandatory for complex workflows."""
     session_id = session_id or os.environ.get("CURRENT_SESSION_ID")
     if not session_id:
         return None
@@ -246,12 +246,12 @@ def get_session_metadata(session_id: Optional[str] = None) -> Optional[Dict[str,
 
 
 def get_session_context(
-    num_recent: int = 10,
+    num_recent: int = 5,
     session_id: Optional[str] = None,
     include_workflow_steps: bool = True
 ) -> Dict[str, Any]:
     """
-    Retrieve comprehensive context for the current PFD session.
+    Retrieve comprehensive context for the current or specific session.
     
     Args:
         num_recent: Number of most recent tool executions to include
