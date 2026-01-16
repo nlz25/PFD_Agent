@@ -1,4 +1,6 @@
 from google.adk.agents import Agent
+from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
+from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool import MCPToolset
@@ -27,6 +29,7 @@ Core abilities
 - Inspect structure files to report frame counts, formulas, atom counts,
   cells, periodicity flags, and available per-frame/per-atom properties.
 - Apply entropy-based configuration selection to curate diverse structure sets.
+- Build complex structures by calling the flexible_structure_agent when needed.
 """
 
 instruction = """
@@ -64,9 +67,12 @@ Operating rules
   warnings or anomalies.
 - When chaining tools (e.g., build_bulk_crystal → perturb_atoms), clearly
   indicate which artifact from the previous step you are using.
+- If the user request contains complex structure manipulations beyond your
+  tools' capabilities, recognize the limitation gracefully and, transfer to the
+  flexible_structure_agent with a brief explanation.
 
 Response format
-- Plan: 1–3 bullets describing the immediate next step(s).
+- Plan: 1-3 bullets describing the immediate next step(s).
 - Action: the exact tool you will call.
 - Result: brief summary with key outputs and absolute paths.
 - Next: the immediate follow-up or final recap.
@@ -78,6 +84,14 @@ toolset = MCPToolset(
         url="http://localhost:50004/sse", # Or any other MCP server URL
         sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds
     )
+)
+
+remote_a2a_url = "http://localhost:8001"
+flexible_structure_agent = RemoteA2aAgent(
+    name='flexible_structure_agent',
+    description="A structure agent that can handle very complex structure-related tasks. " \
+    "This is a remote agent, so always remember to transfer the outputs back to the parent agent after done.",
+    agent_card=f"{remote_a2a_url}/{AGENT_CARD_WELL_KNOWN_PATH}"
 )
 
 structure_agent = Agent(
@@ -94,5 +108,6 @@ structure_agent = Agent(
     tools=[
         toolset,
     ],
-    after_tool_callback=after_tool_callback
+    after_tool_callback=after_tool_callback,
+    sub_agents=[flexible_structure_agent],  # Enable transfer to flexible_structure_agent
 )

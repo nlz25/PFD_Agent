@@ -1130,6 +1130,45 @@ def inspect_structure(
 	)
 
 
+## ================================
+## Tools for file transfer between local and remote structure agents
+## ===============================
+
+import requests
+
+@mcp.tool()
+def get_remote_files(file_urls: list[str], local_save_path: str="downloads") -> list[dict]:
+    """
+    Downloads files from the remote agent to local storage.
+    Args:
+        file_urls: List of full URLs of files to download from the remote agent.
+        local_save_path: Local directory path to save the downloaded files.
+    """
+    os.makedirs(local_save_path, exist_ok=True)
+    results: list[dict] = []
+    for file_url in file_urls:
+        # Extract filename from URL (the last part)
+        file_name = file_url.split('/')[-1]
+        local_file_path = os.path.join(local_save_path, file_name)
+
+        # get the file contents from the remote URL
+        response = requests.get(file_url)
+        response.raise_for_status()
+        
+        # Write the raw content to file
+        with open(local_file_path, 'wb') as f:
+            f.write(response.content)
+
+        results.append({
+            "result": "File downloaded successfully",
+            "file_name": file_name,
+            "local_path": local_file_path
+        })
+
+    return results
+
+
+
 if __name__ == "__main__":
 	create_workpath()
 	mcp.run(transport=args.transport)
