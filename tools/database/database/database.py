@@ -36,7 +36,7 @@ class QueryResult(TypedDict):
     count: int
     ids: List[int]
     formulas: List[str]
-    results: List[Dict[str, Any]]
+    #results: List[Dict[str, Any]]
 
 def save_extxyz_to_db(extxyz_path: str, 
                       info_db_path: str,
@@ -243,8 +243,6 @@ def query_compounds(
             - count (int): Number of unique rows returned.
             - ids (List[int]): Unique row ids.
             - formulas (List[str]): Unique empirical formulas (if available).
-            - results (List[Dict[str, Any]]): One dict per row with keys:
-                { 'id', 'name', 'formula', 'tags', 'key_value_pairs' }.
 
     Examples (selection):
         # 1) Single id
@@ -302,12 +300,12 @@ def query_compounds(
                     }
                 )
             return  QueryResult(
-                query=selection,count=len(results),results=results,ids=seen_ids,formulas=formulas
+                query=selection,count=len(results),ids=seen_ids,formulas=formulas
             )
     except Exception as e:
         logging.error("Error querying database: %s", e)
         return QueryResult(
-            query=selection,count=0,results=[],ids=[],formulas=[]
+            query=selection,count=0,ids=[],formulas=[]
         )
 
 

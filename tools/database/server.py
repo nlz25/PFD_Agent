@@ -49,7 +49,6 @@ class QueryResult(TypedDict):
     count: int
     ids: List[int]
     formulas: List[str]
-    results: List[Dict[str, Any]]
 
 def _save_extxyz_to_db(extxyz_path: str, 
                       info_db_path: str,
@@ -281,11 +280,6 @@ def _query_compounds(
     seen_ids: set[int] = set()
     formulas: set[str] = set()
     try:
-        #if exclusive_elements:
-        #    filter = _exclusive_elements(exclusive_elements)
-        #else:
-        #    filter = None
-            
         with connect(path) as db:
             for row in db.select(selection,#filter=filter,
                                  limit=limit,**custom_args):
@@ -293,22 +287,13 @@ def _query_compounds(
                     continue
                 seen_ids.add(row.id)
                 formulas.add(row.get("formula"))
-                results.append(
-                {
-                        "id": row.id,
-                        "name": row.get("name"),
-                        "formula": row.get("formula"),
-                        "tags": row.get("tags"),
-                        "key_value_pairs": dict(row.key_value_pairs or {}),
-                    }
-                )
             return  QueryResult(
-                query=selection,count=len(results),results=results,ids=seen_ids,formulas=formulas
+                query=selection,count=len(results),ids=seen_ids,formulas=formulas
             )
     except Exception as e:
         logging.error("Error querying database: %s", e)
         return QueryResult(
-            query=selection,count=0,results=[],ids=[],formulas=[]
+            query=selection,count=0,ids=[],formulas=[]
         )
 
 
