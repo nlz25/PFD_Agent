@@ -1,29 +1,21 @@
-from google.adk.agents import Agent
+from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
-from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool import MCPToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
 import os
 from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL
 from ..callbacks import after_tool_callback
-
+from dotenv import load_dotenv
+from pathlib import Path
+_script_dir = Path(__file__).parent
+load_dotenv(_script_dir / ".env", override=True)
 # Set the secret key in ~/.abacusagent/env.json or as an environment variable, or modify the code.
 model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
 model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)
 model_base_url = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
 
 description = """
-You are the Structure Agent for MatCreator. You help users build, inspect,
-modify, and select atomic structures using ASE-backed tools.
-
-Core abilities
-- Build bulk crystals from formulas and crystal prototypes, and expand them
-  into supercells.
-- Build supercells from existing structure files.
-- Generate perturbed structures for data augmentation and robustness tests.
-- Inspect structure files to report frame counts, formulas, atom counts,
-  cells, periodicity flags, and available per-frame/per-atom properties.
-- Apply entropy-based configuration selection to curate diverse structure sets.
+Build, inspect, modify, and curate diverse atomic structures.
 """
 
 instruction = """
@@ -66,7 +58,7 @@ Response format
 - Plan: 1–3 bullets describing the immediate next step(s).
 - Action: the exact tool you will call.
 - Result: brief summary with key outputs and absolute paths.
-- Next: the immediate follow-up or final recap. Transfer back to parent agent if done.
+- Next: the immediate follow-up or final recap.
 """
 
 
@@ -77,15 +69,15 @@ toolset = MCPToolset(
     )
 )
 
-structure_agent = Agent(
+structure_agent = LlmAgent(
     name='structure_agent',
     model=LiteLlm(
         model=model_name,
         base_url=model_base_url,
         api_key=model_api_key
     ),
-    disallow_transfer_to_parent=True,
-    disallow_transfer_to_peers=True,
+    disallow_transfer_to_parent=False,
+    disallow_transfer_to_peers=False,
     description=description,
     instruction=instruction,
     tools=[

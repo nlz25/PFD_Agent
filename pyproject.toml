@@ -6,32 +6,19 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "ase>=3.26.0",
-    "dargs>=0.4.10",
-    "dpdata>=0.2.25",
     "fastmcp>=2.12.3",
     "google-adk>=1.1.1",
     "lbg>=1.2.29",
     "litellm>=1.77.4",
-    "numpy==2.2.0",
     "periodictable>=2.0.2",
     "pyyaml>=6.0.2",
     "bohr-agent-sdk",
     "scipy>=1.16.2",
+    "python-dotenv",
+    "sqlalchemy"
 ]
-
-[project.scripts]
-pfd-agent = "matcreator.script.pfd_agent:main"
-database-agent = "matcreator.script.database_agent:main"
-
 
 [build-system]
 requires = ["setuptools>=65.5.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-# Map the top-level packages to the `src` directory
-package-dir = {"" = "src"}
-
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["matcreator*"]

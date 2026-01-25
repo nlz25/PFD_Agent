@@ -37,6 +37,7 @@ SERVERS = {
 # Default configuration
 DEFAULT_HOST = os.environ.get("MCP_HOST", "localhost")
 DEFAULT_TRANSPORT = os.environ.get("MCP_TRANSPORT", "sse")
+DEFAULT_USE_UV = os.environ.get("MCP_USE_UV", "true").lower() == "true"
 
 
 def print_message(color: str, message: str) -> None:
@@ -61,7 +62,8 @@ def start_server(
     port: int,
     script: Path,
     host: str = DEFAULT_HOST,
-    transport: str = DEFAULT_TRANSPORT
+    transport: str = DEFAULT_TRANSPORT,
+    use_uv: bool = DEFAULT_USE_UV
 ) -> Optional[Dict]:
     """Start a single MCP server."""
     log_file = LOG_DIR / f"{name}-server.log"
@@ -81,17 +83,31 @@ def start_server(
     
     try:
         with open(log_file, 'w') as log:
-            process = subprocess.Popen(
-                [
-                    sys.executable,  # Use the current Python interpreter
+            if use_uv:
+                # Use uv run to execute the script
+                cmd = [
+                    "uv", "run",
                     str(script),
                     "--port", str(port),
                     "--host", host,
                     "--transport", transport
-                ],
+                ]
+            else:
+                # Use the current Python interpreter
+                cmd = [
+                    sys.executable,
+                    str(script),
+                    "--port", str(port),
+                    "--host", host,
+                    "--transport", transport
+                ]
+            
+            process = subprocess.Popen(
+                cmd,
                 stdout=log,
                 stderr=subprocess.STDOUT,
-                start_new_session=True  # Detach from parent
+                start_new_session=True,  # Detach from parent
+                cwd=script.parent  # Set working directory to script directory for uv
             )
         
         # Wait a moment and check if process is still running
@@ -211,7 +227,8 @@ def check_status() -> None:
 def start_all_servers(
     host: str = DEFAULT_HOST, 
     transport: str = DEFAULT_TRANSPORT,
-    server_names: Optional[List[str]] = None
+    server_names: Optional[List[str]] = None,
+    use_uv: bool = DEFAULT_USE_UV
 ) -> None:
     """Start all or selected MCP servers."""
     # Determine which servers to start
@@ -248,7 +265,7 @@ def start_all_servers(
     total_count = len(servers_to_start)
 
     for name, (port, script) in servers_to_start.items():
-        info = start_server(name, port, script, host, transport)
+        info = start_server(name, port, script, host, transport, use_uv)
         if info:
             servers_info[name] = info
             success_count += 1
@@ -280,11 +297,24 @@ def main():
     """Main entry point."""
     command = sys.argv[1] if len(sys.argv) > 1 else "start"
     
-    # Get optional server names (for start/stop commands)
-    server_names = sys.argv[2:] if len(sys.argv) > 2 else None
+    # Check for UV flags
+    use_uv = DEFAULT_USE_UV
+    server_names = []
+    
+    # Parse arguments after command
+    args = sys.argv[2:] if len(sys.argv) > 2 else []
+    for arg in args:
+        if arg == "--uv":
+            use_uv = True
+        elif arg == "--no-uv":
+            use_uv = False
+        elif not arg.startswith("--"):
+            server_names.append(arg)
+    
+    server_names = server_names if server_names else None
 
     if command == "start":
-        start_all_servers(server_names=server_names)
+        start_all_servers(server_names=server_names, use_uv=use_uv)
     elif command == "stop":
         stop_servers(server_names=server_names)
     elif command == "restart":
@@ -304,9 +334,15 @@ def main():
         for name, (port, _) in SERVERS.items():
             print(f"  {name:<12} - Port {port}")
         print()
+        print("Options:")
+        print("  --uv                     - Force use 'uv run' to start servers")
+        print("  --no-uv                  - Force use 'python' instead of 'uv run'")
+        print()
         print("Examples:")
-        print(f"  {sys.argv[0]} start                    # Start all servers")
+        print(f"  {sys.argv[0]} start                    # Start all servers (using uv by default)")
+        print(f"  {sys.argv[0]} start --no-uv            # Start all servers using python")
         print(f"  {sys.argv[0]} start database dpa       # Start only database and dpa servers")
+        print(f"  {sys.argv[0]} start database dpa --no-uv # Start selected servers using python")
         print(f"  {sys.argv[0]} stop                     # Stop all servers")
         print(f"  {sys.argv[0]} stop quest vasp          # Stop only quest and vasp servers")
         print(f"  {sys.argv[0]} status                   # Check status of all servers")
@@ -314,6 +350,7 @@ def main():
         print("Environment variables:")
         print("  MCP_HOST      - Server host (default: localhost)")
         print("  MCP_TRANSPORT - Transport protocol (default: sse)")
+        print("  MCP_USE_UV    - Use uv run by default (default: true)")
         sys.exit(1)
 
 

@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "vasp-server"
 version = "0.1.0"
@@ -13,3 +17,6 @@ dependencies = [
     "pymatgen==2025.10.7",
     "mp_api==0.45.13"
 ]
+
+[tool.setuptools.packages.find]
+where = ["src"]

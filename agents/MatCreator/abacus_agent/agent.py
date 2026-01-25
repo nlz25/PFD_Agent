@@ -1,13 +1,16 @@
 from google.adk.agents import  LlmAgent
 from google.adk.models.lite_llm import LiteLlm
-from google.adk.tools.mcp_tool import MCPToolset
+from google.adk.tools.mcp_tool import McpToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
-from google.genai import types
 from dp.agent.adapter.adk import CalculationMCPToolset
 import os
-
+from dotenv import load_dotenv
+from pathlib import Path
 from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL, BOHRIUM_USERNAME, BOHRIUM_PASSWORD, BOHRIUM_PROJECT_ID
 from ..callbacks import after_tool_callback
+
+_script_dir = Path(__file__).parent
+load_dotenv(_script_dir / ".env", override=True)
 
 # Set the secret key in ~/.abacusagent/env.json or as an environment variable, or modify the code t
 model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
@@ -91,7 +94,7 @@ STORAGE = {
     }
 }
 
-toolset = MCPToolset(
+toolset = McpToolset(
     connection_params=SseServerParams(
         url="http://localhost:50003/sse", # Or any other MCP server URL
         sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds

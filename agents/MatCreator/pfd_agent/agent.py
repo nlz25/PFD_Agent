@@ -1,8 +1,9 @@
 from google.adk.agents import  LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
-from google.adk.tools.mcp_tool import MCPToolset
-from typing import Literal, Optional, Dict, Any
+from google.adk.tools.mcp_tool import McpToolset
+from dp.agent.adapter.adk import CalculationMCPToolset
+
 from ..abacus_agent.agent import abacus_agent
 from ..dpa_agent.agent import dpa_agent
 from ..vasp_agent.agent import vasp_agent
@@ -14,20 +15,22 @@ from ..callbacks import (
     get_session_context
 )
 import os
-from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL, BOHRIUM_USERNAME, BOHRIUM_PASSWORD, BOHRIUM_PROJECT_ID
+from ..constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL
+from dotenv import load_dotenv
+from pathlib import Path
+_script_dir = Path(__file__).parent
+load_dotenv(_script_dir / ".env", override=True)
 
 model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
 model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)
 model_base_url = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
-bohrium_username = os.environ.get("BOHRIUM_USERNAME", BOHRIUM_USERNAME)
-bohrium_password = os.environ.get("BOHRIUM_PASSWORD", BOHRIUM_PASSWORD)
-bohrium_project_id = int(os.environ.get("BOHRIUM_PROJECT_ID", BOHRIUM_PROJECT_ID))
+
 
 description="""
-The main coordinator agent for PFD (pretrain-finetuning-distillation) workflow. Handles PFD workflow and delegates DPA/ABACUS/VASP tasks to specialized sub-agents.
+Coordinator for iterative and robust pre-training, fine-tuning and distillation (PFD) workflow that generate machine learning force fields from pre-trained model.
 """
 
-instruction ="""
+instruction_tmp ="""
 Mission
 - Orchestrate the standard PFD workflow with minimal, safe steps and clear outputs:
     building structure → MD exploration → data curation (entropy selection) → labeling → model training → check convergence.
@@ -78,8 +81,48 @@ Response format
 - Next: immediate next step or final recap
 """
 
+# ...existing code...
+instruction ="""
+Scope and entry check
+- Coordinate iterative fine-tuning or distillation workflow with multiple cycles and convergence checks.
+- If the request is a single task (one training run, one MD, one labeling, one structure op), stop and hand back to MatCreator/direct sub-agents. If unclear, ask: “Is this a one-off task or an iterative PFD workflow with convergence?”
 
-toolset = MCPToolset(
+Planning and approval (mandatory)
+- Draft a concrete 2–4 step plan for the next cycle.
+- Show the plan and obtain explicit user approval before running anything.
+- Before executing an approved plan (and whenever the plan changes), call set_session_metadata to persist workflow type, goals, inputs, the plan, and expected outputs.
+
+Session context
+- When resuming or between major steps, call get_session_context to review progress and avoid duplication.
+
+Standard workflow skeleton
+- structure → MD exploration → entropy-based curation → labeling (ABACUS or DPA) → training → check convergence → repeat until criteria or max-iterations.
+
+Key parameters to confirm
+- General: mode (finetune/distill), max iterations (default 1), convergence criterion (e.g., 0.002 eV/atom).
+- Structure: source (given/build), supercell size(s), perturbation magnitudes/counts.
+- MD: ensemble, temperature(s), total time, timestep/steps, save interval.
+- Curation: max_sel (and chunk_size if needed).
+- Labeling: ABACUS (e.g., kspacing 0.2) or DPA (e.g., head name).
+- Training: epochs, train/test split.
+- Interaction: chat (confirm each step) or non-interactive batch (default).
+
+Execution rules
+- One sub-agent per step; actually invoke it—do not only mention names.
+- Use only tools available in context.
+
+Outputs
+- Report absolute artifact paths and key metrics after each step; propose the next step.
+
+Failure handling
+- On error, show the exact message and propose one concrete alternative; confirm before proceeding.
+ 
+Response format
+- Plan | Action (actual call) | Result (artifacts + metrics, absolute paths) | Next
+"""
+# ...existing code...
+
+toolset = McpToolset(
     connection_params=SseServerParams(
         url="http://localhost:50003/sse", # Or any other MCP server URL
         sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds
@@ -146,7 +189,7 @@ pfd_agent = LlmAgent(
     sub_agents=[
         abacus_agent,
         dpa_agent,
-        vasp_agent
+        vasp_agent,
         structure_agent
     ]
 )

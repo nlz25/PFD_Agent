@@ -77,6 +77,10 @@ Formatting requirements:
 - When matching text fields, wrap literals in single quotes and escape embedded quotes if necessary.
 - Apply LIMIT only if the user supplies one (or you infer "top"/"few" -> 20) and include ORDER BY when
   returning ranked results.
+- **NEVER use LIKE with wildcards for the Elements column** (e.g., LIKE 'Si-%' or LIKE '%Si%'). 
+  Always use exact match with the = operator. If the user provides incomplete element information,
+  ask for clarification or return no results rather than using LIKE patterns.
+- For other text columns (Type, Fields, Source), LIKE may be used if fuzzy matching is explicitly requested.
 
 Output contract:
 - Respond with JSON conforming to SqlAgentOutput (sql/rationale/confidence). No additional keys.

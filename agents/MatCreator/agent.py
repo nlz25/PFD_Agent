@@ -1,27 +1,33 @@
-from google.adk.agents import LlmAgent
+from google.adk.agents import LlmAgent, InvocationContext
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.agents.callback_context import CallbackContext
+from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
+from google.adk.events import Event, EventActions
+from google.genai.types import Content, Part
+
 import os
-from .pfd_agent.agent import pfd_agent
-from .database_agent.agent import database_agent
-from .abacus_agent.agent import abacus_agent
-from .dpa_agent.agent import dpa_agent
-#from .vasp_agent.agent import vasp_agent
-from .structure_agent.agent import structure_agent
+import logging
+from .planning_agent import planning_agent
+from .assessment_agent import assessment_agent
+from .execution_agent import execution_agent
 from .constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL
 from .callbacks import (
-    before_agent_callback,
     set_session_metadata,
-    get_session_context
+    get_session_context,
+    get_session_metadata
 )
+
+AGENT_CARD_WELL_KNOWN_PATH=".well-known/agent-card.json"
 
 model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
 model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)
 model_base_url = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
 
+logger = logging.getLogger(__name__)
+
 description="""
-You are the MatCreator Agent. You route user intents to the right capability: either plan and direct sub-agents
-for simple tasks, or utilize specialized coordinator agents for certain complex workflows.
+You are the MatCreator Agent. You orchestrate computational materials science workflows through 
+a structured plan-confirm-execute cycle, ensuring user visibility and approval before expensive operations.
 """ 
 
 global_instruction = """
@@ -31,42 +37,117 @@ General rules for all agents:
 - When encountering errors, quote the exact error message and propose concrete solutions.
 """
 
-instruction ="""
-Routing logic
-- Use `set_session_metadata` to record/update user goals, and relevant context. Update if needed.
-- Simple, specific tasks, orchestrate and directly TRANSFER to the matching sub-agent: database_agent | abacus_agent | dpa_agent |vasp_agent
-- For complex, multi-stage workflows, delegate to specialized coordinator agent if available. 
- 
-You have one specialized coordinator agent:
-1. 'pfd_agent': Handles complex, multi-stage PFD workflows (mix of MD exploration, configuration filtering, labeling and model training).
+# Root agent coordinates the plan-confirm-execute workflow
+root_instruction = """
+You are the MatCreator orchestration agent. You coordinate computational materials science workflows 
+through a structured plan-confirm-execute cycle.
 
-Planning and execution rules (must follow)
-1. Always make a minimal plan (1–3 bullets) before executing calculation tasks.
-2. ALWAYS seek explicit user confirmation before delegating complex workflows to coordinator agents (e.g., pfd-agent).
-3. Never mix tool calls from different sub-agents in the same step; each execution transfers to one agent only.
-4. For coordinator (e.g., pfd_agent) transfers: mention that session metadata will be created/updated and that detailed step-by-step planning happens inside that specialized agent.
-5. Review session context with 'get_session_context' when resuming disrupted workflows to understand what has already been completed.
+**Your role:**
+You DO NOT execute tasks directly. You manage the workflow by delegating to specialized agents:
 
-Outputs
-- Always surface absolute artifact paths, key metrics (ids count, entropy gain, energies, model/log paths).
-- After coordinator steps: summarize the step’s outputs and the next planned phase.
+1. **planning_agent**: Creates structured execution plans based on user requests
+2. **assessment_agent**: Evaluates user responses (plan approval, task completion, replanning needs)
+3. **execution_agent**: Executes approved plans by coordinating domain-specific agents
 
-Errors & blocking inputs
-- If required inputs (db path, structure file, model path, config) are missing: ask exactly one
-    concise question, then proceed.
-- On failure: quote the error, impact, and offer a concrete adjustment (smaller limit, different head, fix path).
+**Your job:**
+- Transfer to the appropriate agent based on current workflow state
+- Let planning_agent handle all plan creation
+- Let assessment_agent handle all user response evaluation
+- Let execution_agent handle all task execution
+- Provide brief status updates between phases
 
-Response format (strict)
-- Plan: 1–3 bullets (intent + rationale).
-- Transfer: agent name ONLY (e.g., Transfer: database_agent | pfd_agent).
-- Result: (after agent returns) concise artifacts + metrics (absolute paths).
-- Next: immediate follow-up step or final recap.
-
-Never fabricate agent or tool names. Always transfer to agents for actions.
+**Critical rules:**
+1. NEVER execute tasks yourself - always delegate to the appropriate agent
+2. Trust the workflow state flags (plan_confirmed, execution_started, goal_achieved)
+3. Keep your messages minimal - let the specialized agents communicate with users
+4. Only intervene if there's a workflow error or max iterations exceeded
 """
 
+
+class MatCreatorFlowAgent(LlmAgent):
+    """Root agent with enforced plan-confirm-execute workflow."""
+    
+    async def _run_async_impl(self, ctx: InvocationContext):
+        """State-driven workflow: plan → confirm → execute (iterative with safety limit)."""
+        
+        max_iterations = 5  # Prevent infinite re-planning loops
+        iteration = 0
+        
+        while iteration < max_iterations:
+            iteration += 1
+            logger.info(f"Iteration {iteration}/{max_iterations}, state: {ctx.session.state}")
+            
+            # Step 0: Run assessment if execution was started (handles interruptions/completion)
+            if ctx.session.state.get('execution_started', False):
+                logger.info("Execution was started, running assessment...")
+                async for event in assessment_agent.run_async(ctx):
+                    yield event
+                
+                # Check assessment results
+                if ctx.session.state.get('goal_achieved', False):
+                    logger.info("Goal achieved, workflow complete")
+                    return
+                
+                if ctx.session.state.get('needs_replanning', False):
+                    logger.info("Replanning needed due to changed requirements")
+                    # Clear execution flags and continue to planning
+                    continue
+                
+                # If continue_execution: execution_started is still True, proceed to Step 3
+
+            # Ensure goal is confirmed before planning
+            if not ctx.session.state.get('goal_confirmed', False):
+                if ctx.session.state.get('pending_goal_confirmation', False):
+                    logger.info("Awaiting goal confirmation from user response...")
+                    async for event in assessment_agent.run_async(ctx):
+                        yield event
+                    continue
+                else:
+                    logger.info("Understanding user intent and proposing goal...")
+                    async for event in planning_agent.run_async(ctx):
+                        yield event
+                    return  # Wait for user to confirm goal
+                
+            
+            # Step 1: Create plan if needed
+            if not ctx.session.state.get('plan_confirmed',False) and not ctx.session.state.get('pending_confirmation',False):
+                logger.info("Creating plan...")
+                async for event in planning_agent.run_async(ctx):
+                    yield event
+                return  # Wait for user response
+            
+            # Step 2: Get confirmation if plan not yet approved
+            if not ctx.session.state.get('plan_confirmed', False):
+                logger.info("Awaiting plan confirmation...")
+                async for event in assessment_agent.run_async(ctx):
+                    yield event
+                
+                # If still not confirmed (questions/unclear), wait for user
+                if not ctx.session.state.get('plan_confirmed', False):
+                    logger.info("Plan not confirmed-reformulate")
+                    continue
+            
+            # Step 3: Execute approved plan
+            if ctx.session.state.get('plan_confirmed', False):
+                logger.info("Executing approved plan via execution_agent")
+                
+                # Delegate to execution agent - completes in single invocation
+                async for event in execution_agent.run_async(ctx):
+                    yield event
+                
+                logger.info("Plan execution completed, will assess on next user input")
+                return  # Execution complete, wait for user input to trigger assessment
+        
+        # Safety: exceeded max iterations
+        logger.warning(f"Exceeded max iterations ({max_iterations}) - stopping")
+        yield Event(
+            content=Content(parts=[Part(text=f"⚠️ Reached maximum re-planning attempts ({max_iterations}). Please start a new conversation if you need further assistance.")]),
+            author=self.name
+        )
+
+
 def before_agent_callback_root(callback_context: CallbackContext):
-    """Set environment variables and initialize session metadata for MatCreator agent."""
+    """Set environment variables and initialize session state for MatCreator agent."""
     session_id = callback_context._invocation_context.session.id
     user_id = callback_context._invocation_context.session.user_id
     app_name = callback_context._invocation_context.session.app_name
@@ -75,6 +156,34 @@ def before_agent_callback_root(callback_context: CallbackContext):
     os.environ["CURRENT_SESSION_ID"] = session_id
     os.environ["CURRENT_USER_ID"] = user_id
     os.environ["CURRENT_APP_NAME"] = app_name
+    
+    # Initialize session state variables if not present
+    state = callback_context._invocation_context.session.state
+    if 'plan' not in state:
+        state['plan'] = None
+    if 'goal' not in state:
+        state['goal'] = None
+    if 'goal_confirmed' not in state:
+        state['goal_confirmed'] = False
+    if 'pending_goal_confirmation' not in state:
+        state['pending_goal_confirmation'] = False
+    if 'plan_confirmed' not in state:
+        state['plan_confirmed'] = False
+        
+    if 'pending_confirmation' not in state:
+        state['pending_confirmation'] = False
+    
+    if 'execution_started' not in state:
+        state['execution_started'] = False
+    
+    if 'execution_complete' not in state:
+        state['execution_complete'] = False
+    
+    if 'goal_achieved' not in state:
+        state['goal_achieved'] = False
+    
+    if 'needs_replanning' not in state:
+        state['needs_replanning'] = False
     
     # Initialize session metadata in database if not already exists
     try:
@@ -93,10 +202,19 @@ def before_agent_callback_root(callback_context: CallbackContext):
 
 tools = [
     set_session_metadata, 
-    get_session_context
+    get_session_context,
+    get_session_metadata
     ]
 
-root_agent = LlmAgent(
+remote_a2a_url="http://localhost:8001/"
+structure_builder_agent = RemoteA2aAgent(
+    name="structure_builder_agent",
+    description="",
+    agent_card=f"{remote_a2a_url}{AGENT_CARD_WELL_KNOWN_PATH}",
+)
+
+
+root_agent = MatCreatorFlowAgent(
     name='MatCreator_agent',
     model=LiteLlm(
         model=model_name,
@@ -104,16 +222,13 @@ root_agent = LlmAgent(
         api_key=model_api_key
     ),
     description=description,
-    instruction=instruction,
+    instruction=root_instruction, 
     global_instruction=global_instruction,
     before_agent_callback=before_agent_callback_root,
-    tools=tools,
+    tools=[set_session_metadata, get_session_context, get_session_metadata],
     sub_agents=[
-        pfd_agent,
-        database_agent,
-        abacus_agent,
-        dpa_agent,
-        #vasp_agent,
-        structure_agent
+        planning_agent,
+        assessment_agent,
+        execution_agent,
     ]
     )

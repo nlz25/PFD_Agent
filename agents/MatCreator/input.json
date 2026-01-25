@@ -1,8 +1,0 @@
-{
-    "LLM_MODEL": "openai/qwen3-max",
-    "LLM_API_KEY": "",
-    "LLM_BASE_URL": "",
-    "BOHRIUM_USERNAME": "",
-    "BOHRIUM_PASSWORD": "",
-    "BOHRIUM_PROJECT_ID": 
-}
