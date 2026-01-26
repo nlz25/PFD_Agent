@@ -56,6 +56,7 @@ You have three specialized sub‑agents:
 1. 'dpa_agent_pfd': MD simulation, labeling with DPA, and model training
 2. 'abacus_agent_pfd': DFT calculations using ABACUS
 3. 'structure_agent_pfd': Structure building, perturbation, and entropy-based selection
+4. 'vasp_agent_pfd': DFT calculations using VASP
 
 Workflow rules
 - For NEW workflows: set session metadata with workflow type and goals
@@ -64,7 +65,9 @@ Workflow rules
 - Repeat cycles until reaching max iterations or convergence criteria
 
 PFD Fine-tuning workflow:
+-two optional routes:
 1) Structure building → 2) MD exploration → 3) Data curation (entropy) → 4) DFT labeling (ABACUS) → 5) Fine-tune model with ALL collected data
+1) Structure building → 2) MD exploration → 3) Data curation (entropy) → 4) DFT labeling (VASP) → 5) Fine-tune model with ALL collected data
 
 PFD Distillation workflow:
 1) Structure building → 2) MD exploration → 3) Data curation (entropy) → 4) Teacher model labeling (DPA) → 5) Train new model from scratch

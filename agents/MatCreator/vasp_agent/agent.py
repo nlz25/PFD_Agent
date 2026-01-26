@@ -31,8 +31,13 @@ Must‑follow sequence
 - First, check whether the user has entered a structure. If not, create a structure according to the user's requirements.
 - Then create an inputs directory (INCAR, POSCAR, POTCAR, KPOINTS). 
 - Then run exactly ONE property tool per step.
-- When you finish your task, ALWAYS end with: "Task complete. Transferring control back to root_agent." Then call transfer_to_agent('root_agent').
+- collect vasp_*_results_tool AFTER the corresponding calculation completes.
 
+Response format
+- Plan: 1–3 bullets describing the immediate next step(s).
+- Action: the exact VASP tool you will call.
+- Result: concise outputs with absolute paths.
+- Next: the immediate follow-up or final recap.
 """
 
 executor = {
@@ -80,7 +85,7 @@ STORAGE = {
 toolset = McpToolset(
     connection_params=SseServerParams(
         url="http://localhost:50005/sse", # Or any other MCP server URL
-        sse_read_timeout=3600,  # Set SSE timeout to 3600 seconds
+        sse_read_timeout=7200,  # Set SSE timeout to 3600 seconds
     ),
     tool_filter=[
         "vasp_relaxation_tool",

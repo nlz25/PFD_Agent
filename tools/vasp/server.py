@@ -9,6 +9,8 @@ from vasp_tools.calculation import (
     vasp_scf as vasp_scf,
     vasp_scf_results as vasp_scf_results,
 )
+
+from vasp_tools.calculation import vasp_nscf, read_calculation_result
 import yaml
 from pymatgen.core import Structure
 import math
@@ -30,9 +32,9 @@ machine={
     "context_type": "BohriumContext",
     "local_root" : "/tmp/vasp_server",
     "remote_profile":{
-        "email": os.environ.get("BOHRIUM_USERNAME")                                                                                                                                                                                     ,
-        "password": os.environ.get("BOHRIUM_PASSWORD")                                                                                                                                                                                     ,
-        "program_id": int(os.environ.get("BOHRIUM_PROJECT_ID"))                                                   ,
+        "email": os.environ.get("BOHRIUM_USERNAME"),
+        "password": os.environ.get("BOHRIUM_PASSWORD"),
+        "program_id": int(os.environ.get("BOHRIUM_PROJECT_ID")),
         "keep_backup":True,
         "input_data":{
             "job_type": "container",
@@ -133,14 +135,14 @@ def vasp_relaxation_tool(structure_path: Path, incar_tags: Optional[Dict] = None
         Submit VASP structural relaxation jobs.
         
         Args:
-            structure_paths: Paths to the structure file (support extxyz etc.).
+            structure_path: Path to the structure file (support extxyz etc.).
             incar_tags: Additional INCAR parameters to merge with defaults. Use None unless explicitly specified by the user.
             kpoint_num: K-point mesh as a tuple (nx, ny, nz). If not provided, an automatic density of 40 is used.
             frames: select specific frame indices, default: all
             potcar_map: POTCAR mapping as {element: potcar}, e.g., {"Bi": "Bi_d", "Se": "Se"}. Use None unless explicitly specified by the user.
         Returns:
             A dict containing the submission result with keys:
-            - calculation_id: Unique calculation identifier
+            - calculation_path: Unique calculation identifier
             - success: Whether submission succeeded
             - error: Error message, if any
     """
@@ -218,8 +220,7 @@ def vasp_scf_tool(structure_path: Path, restart_id: Optional[str] = None, soc: b
     Submit VASP self-consistent field (SCF) jobs.
     
     Args:
-        restart_id: ID of a previous calculation. If provided, reuse its structure and charge density.
-        structure_paths: Paths to the structure file; required when restart_id is not provided.
+        structure_path: Path to the structure file; required when restart_id is not provided.
         soc: Whether to include spin–orbit coupling. Defaults to False.
         incar_tags: Additional INCAR parameters to merge with defaults. Use None unless explicitly specified by the user.
         kpoint_num: K-point mesh as a tuple (nx, ny, nz). If not provided, an automatic density of 40 is used.
@@ -227,7 +228,7 @@ def vasp_scf_tool(structure_path: Path, restart_id: Optional[str] = None, soc: b
         potcar_map: POTCAR mapping as {element: potcar}, e.g., {"Bi": "Bi_pv", "Se": "Se_pv"}. Use None unless explicitly specified by the user.
     Returns:
         A dict containing the submission result with keys:
-        - calculation_id: Unique calculation identifier
+        - calculation_path: Unique calculation identifier
         - success: Whether submission succeeded
         - error: Error message, if any
     """
@@ -318,6 +319,219 @@ def vasp_scf_results_tool(
     return vasp_scf_results(
             scf_work_dir_ls=scf_work_dir_ls
         )
+
+
+
+@mcp.tool()
+def vasp_nscf_kpath_tool(scf_dir_ls: Union[List[Path], Path], soc: bool=False, incar_tags: Optional[Dict] = None, kpath: Optional[str] = None, n_kpoints: Optional[int] = None, potcar_map: Optional[Dict] = None) -> Dict[str, Any]:
+    """
+    Submit a VASP non-self-consistent field (NSCF) job for band structure. INCAR parameters should be consistent with the preceding SCF job where possible.
+    
+    Args:
+        scf_dir_ls: path to the structure file; required when restart_id is not provided.
+        soc: Whether to include spin–orbit coupling. Defaults to True.
+        incar_tags: Additional INCAR parameters to merge with defaults. Use None unless explicitly specified by the user.
+        kpath: K-point path. Options:
+            - None: Use the auto-generated high-symmetry path from pymatgen.
+            - str: User-specified path, e.g., "GMKG".
+            Use None unless explicitly specified by the user.
+        n_kpoints: Number of points per segment along the k-path.
+        potcar_map: POTCAR mapping as {element: potcar}, e.g., {"Bi": "Bi_pv", "Se": "Se_pv"}. Use None unless explicitly specified by the user.
+    Returns:
+        A dict containing the submission result with keys:
+        - calculation_path: Unique calculation identifier
+        - success: Whether submission succeeded
+        - error: Error message, if any
+    """
+
+    if isinstance(scf_dir_ls, Path):
+        scf_dir_ls = [scf_dir_ls] 
+    
+    task_list = []
+    calc_dir_ls = []
+    n_kpoints = 16 if n_kpoints is None else n_kpoints
+    for dir in scf_dir_ls:
+        # 生成随机UUID
+        calculation_id = datetime.now().strftime("%Y%m%d%H%M%S_%f")
+        chg_path = str(dir.absolute()/"CHGCAR")
+        wave_path = str(dir.absolute()/"WAVECAR")
+        struct = Structure.from_file(str(dir.absolute()/"CONTCAR"))
+
+        # 设置k点路径
+        from pymatgen.symmetry.bandstructure import HighSymmKpath
+        kpath_obj = HighSymmKpath(struct,symprec=0.5)
+        if kpath_obj.kpath is None:
+            return {"success": False, "error": "Failed to generate k-path for the structure"}
+
+
+        if kpath is None:
+            # 使用pymatgen自动生成的高对称路径
+            kpts = Kpoints.automatic_linemode(n_kpoints, kpath_obj)
+        else:
+            # 使用用户指定的路径
+            kpts_ase: BandPath = struct.to_ase_atoms().get_cell().bandpath(kpath, npoints=n_kpoints, eps=1e-2)
+            high_sym_points = []
+            labels = []
+            high_sym_points.append(kpts_ase.special_points[kpath[0]])
+            labels.append(kpath[0])
+            kpath_list = list(kpath)
+            for key in kpath_list[1:-1]:
+                high_sym_points.append(kpts_ase.special_points[key])
+                labels.append(key)
+                high_sym_points.append(kpts_ase.special_points[key])
+                labels.append(key)
+            high_sym_points.append(kpts_ase.special_points[kpath[-1]])
+            labels.append(kpath[-1])
+            kpts = Kpoints(
+                comment="User specified k-path",
+                style=Kpoints.supported_modes.Line_mode,
+                num_kpts=n_kpoints,
+                kpts=high_sym_points,
+                labels=labels,
+                coord_type="Reciprocal"
+            )
+    
+        # 设置INCAR
+        incar = {}
+        if soc:
+            incar.update(settings['VASP_default_INCAR']['nscf_soc'])
+        else:
+            incar.update(settings['VASP_default_INCAR']['nscf_nsoc'])
+        if incar_tags is not None:
+            incar.update(incar_tags)
+
+        # 执行计算
+        task, calc_dir = vasp_nscf(
+            calculation_id=calculation_id,
+            work_dir=settings['work_dir'],
+            struct=struct,
+            kpoints=kpts,
+            incar_dict=incar,
+            chgcar_path=chg_path,
+            wavecar_path=wave_path,
+            potcar_map=potcar_map
+        )
+
+        if not isinstance(task, Task):
+            raise TypeError(f"vasp_nscf must return Task, got {type(task)}: {task}")
+
+        task_list.append(task)
+        calc_dir_ls.append(calc_dir)
+
+
+    submission = Submission(
+        work_base="./",
+        machine=machine,
+        resources=resources,
+        task_list=task_list,
+        forward_common_files=[],
+        backward_common_files=[],
+    )
+
+    submission.run_submission()  
+    return {
+        "status": "success",
+        "calc_dir_list":[str(vasp_nscf_kpath_dir) for vasp_nscf_kpath_dir in calc_dir_ls]
+    }
+
+
+
+@mcp.tool()
+def vasp_nscf_uniform_tool(scf_dir_ls: Union[List[Path], Path], soc: bool=False, incar_tags: Optional[Dict] = None, kpoint_num: Optional[tuple[int, int, int]] = None, potcar_map: Optional[Dict] = None) -> Dict[str, Any]:
+    """
+    Submit a VASP non-self-consistent field (NSCF) job for band structure. INCAR parameters should be consistent with the preceding SCF job where possible.
+    
+    Args:
+        scf_dir_ls: path of the preceding SCF calculation (required) to obtain converged charge density and wavefunction.
+        soc: Whether to include spin–orbit coupling. Defaults to True.
+        incint_num: K-point mesh as a tuple (nx, ny, nz). If not provided, an automatic density of 40 is used.
+        potar_tags: Additional INCAR parameters to merge with defaults. Use None unless explicitly specified by the user.
+        kpocar_map: POTCAR mapping as {element: potcar}, e.g., {"Bi": "Bi_pv", "Se": "Se_pv"}. Use None unless explicitly specified by the user.
+    Returns:
+        A dict containing the submission result with keys:
+        - calculation_path: Unique calculation identifier
+        - success: Whether submission succeeded
+        - error: Error message, if any
+    """
+
+    if isinstance(scf_dir_ls, Path):
+        scf_dir_ls = [scf_dir_ls] 
+    
+    task_list = []
+    calc_dir_ls = []
+    for scf_dir in scf_dir_ls:
+        # 生成随机UUID
+        calculation_id = datetime.now().strftime("%Y%m%d%H%M%S_%f")
+        chg_path = str(scf_dir.absolute()/"CHGCAR")
+        wave_path = str(scf_dir.absolute()/"WAVECAR")
+        struct = Structure.from_file(str(scf_dir.absolute()/"CONTCAR"))
+
+        if kpoint_num is None:
+            factor = 100 * np.power(struct.lattice.a * struct.lattice.b * struct.lattice.c / struct.lattice.volume , 1/3)
+            kpoint_float = (factor/struct.lattice.a, factor/struct.lattice.b, factor/struct.lattice.c)
+            kpt_num_this = (max(math.ceil(kpoint_float[0]), 1), max(math.ceil(kpoint_float[1]), 1), max(math.ceil(kpoint_float[2]), 1))
+        else:
+            # 用户显式传了 kpoint_num：所有结构共用这一套
+            kpt_num_this = kpoint_num
+        # kpts = Kpoints.gamma_automatic(kpts = kpoint_num)
+        kpts = Kpoints.gamma_automatic(kpts=kpt_num_this)
+        
+        # 设置INCAR
+        incar = {}
+        if soc:
+            incar.update(settings['VASP_default_INCAR']['nscf_soc'])
+        else:
+            incar.update(settings['VASP_default_INCAR']['nscf_nsoc'])
+        if incar_tags is not None:
+            incar.update(incar_tags)
+
+        # 执行计算
+        task, calc_dir = vasp_nscf(
+            calculation_id=calculation_id,
+            work_dir=settings['work_dir'],
+            struct=struct,
+            kpoints=kpts,
+            incar_dict=incar,
+            chgcar_path=chg_path,
+            wavecar_path=wave_path,
+            potcar_map=potcar_map
+        )
+
+        if not isinstance(task, Task):
+            raise TypeError(f"vasp_nscf must return Task, got {type(task)}: {task}")
+
+        task_list.append(task)
+        calc_dir_ls.append(calc_dir)
+
+
+    submission = Submission(
+        work_base="./",
+        machine=machine,
+        resources=resources,
+        task_list=task_list,
+        forward_common_files=[],
+        backward_common_files=[],
+    )
+
+    submission.run_submission()  
+    return {
+        "status": "success",
+        "calc_dir_list":[str(vasp_nscf_uniform_dir) for vasp_nscf_uniform_dir in calc_dir_ls]
+    }
+
+
+@mcp.tool()
+def plot_tool(calc_type: str, calculate_path: str) -> Dict[str, Any]:
+    """
+    根据计算类型读取结果用于作图
+    Args:
+    alc_type:计算类型
+    calculate_path:文件路径
+    Returns:
+    A dict containing some results(eg.band_structure,dos,band_gap)
+    """
+    return read_calculation_result(calc_type,calculate_path)
+
 
 if __name__ == "__main__":
     create_workpath()
