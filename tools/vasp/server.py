@@ -350,16 +350,16 @@ def vasp_nscf_kpath_tool(scf_dir_ls: Union[List[Path], Path], soc: bool=False, i
     task_list = []
     calc_dir_ls = []
     n_kpoints = 16 if n_kpoints is None else n_kpoints
-    for dir in scf_dir_ls:
+    for scf_dir in scf_dir_ls:
         # 生成随机UUID
         calculation_id = datetime.now().strftime("%Y%m%d%H%M%S_%f")
-        chg_path = str(dir.absolute()/"CHGCAR")
-        wave_path = str(dir.absolute()/"WAVECAR")
-        struct = Structure.from_file(str(dir.absolute()/"CONTCAR"))
+        chg_path = str(scf_dir.absolute()/"CHGCAR")
+        wave_path = str(scf_dir.absolute()/"WAVECAR")
+        struct = Structure.from_file(str(scf_dir.absolute()/"CONTCAR"))
 
         # 设置k点路径
         from pymatgen.symmetry.bandstructure import HighSymmKpath
-        kpath_obj = HighSymmKpath(struct,symprec=0.5)
+        kpath_obj = HighSymmKpath(struct,symprec=0.01)
         if kpath_obj.kpath is None:
             return {"success": False, "error": "Failed to generate k-path for the structure"}
 
