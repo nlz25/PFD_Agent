@@ -443,10 +443,10 @@ def vasp_nscf_uniform_tool(scf_dir_ls: Union[List[Path], Path], soc: bool=False,
     
     Args:
         scf_dir_ls: path of the preceding SCF calculation (required) to obtain converged charge density and wavefunction.
-        soc: Whether to include spin–orbit coupling. Defaults to True.
-        incint_num: K-point mesh as a tuple (nx, ny, nz). If not provided, an automatic density of 40 is used.
-        potar_tags: Additional INCAR parameters to merge with defaults. Use None unless explicitly specified by the user.
-        kpocar_map: POTCAR mapping as {element: potcar}, e.g., {"Bi": "Bi_pv", "Se": "Se_pv"}. Use None unless explicitly specified by the user.
+        soc: Whether to include spin–orbit coupling. Defaults to False.
+        kpoint_num: K-point mesh as a tuple (nx, ny, nz). If not provided, an automatic density of 40 is used.
+        incar_tags: Additional INCAR parameters to merge with defaults. Use None unless explicitly specified by the user.
+        potcar_map: POTCAR mapping as {element: potcar}, e.g., {"Bi": "Bi_pv", "Se": "Se_pv"}. Use None unless explicitly specified by the user.
     Returns:
         A dict containing the submission result with keys:
         - calculation_path: Unique calculation identifier
