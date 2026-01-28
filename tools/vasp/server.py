@@ -329,7 +329,7 @@ def vasp_nscf_kpath_tool(scf_dir_ls: Union[List[Path], Path], soc: bool=False, i
     
     Args:
         scf_dir_ls: path to the structure file; required when restart_id is not provided.
-        soc: Whether to include spin–orbit coupling. Defaults to True.
+        soc: Whether to include spin–orbit coupling. Defaults to False.
         incar_tags: Additional INCAR parameters to merge with defaults. Use None unless explicitly specified by the user.
         kpath: K-point path. Options:
             - None: Use the auto-generated high-symmetry path from pymatgen.
