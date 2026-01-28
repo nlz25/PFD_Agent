@@ -132,14 +132,15 @@ Determine whether the user:
 **Assessment guidelines:**
 
 **plan_approved = True:**
-- Explicit approval: "yes", "ok", "proceed", "looks good", "approved", "let's go", "do it"
+- Explicit approval only: "yes", "ok", "proceed", "looks good", "approved", "let's go", "do it", "I approve"
 - Conditional approval: "yes, but..." (set needs_modification=True if conditions given)
-- Implicit approval: "sounds great", "perfect", "that works"
+- If approval is not explicit, treat as plan_approved=False
 
 **plan_approved = False:**
 - Rejection: "no", "I don't think so", "that won't work"
 - Uncertainty: "I'm not sure", "maybe", "hmm"
 - Questions about feasibility: "will this work?", "is this the right approach?"
+- Any other responses without explicit approval: "sounds great", "perfect", "that works", "thanks" (no approval phrase)
 
 **needs_modification = True:**
 - Explicit changes: "change step 2 to use X instead of Y"
@@ -161,7 +162,7 @@ User: "yes, let's proceed"
 → plan_approved=True, needs_modification=False
 
 User: "looks good, but use 500 structures instead of 100"
-→ plan_approved=True, needs_modification=True, modifications_requested="Increase dataset size from 100 to 500 structures"
+→ plan_approved=False, needs_modification=True, modifications_requested="Increase dataset size from 100 to 500 structures"
 
 User: "what temperature will step 2 use?"
 → plan_approved=False, needs_modification=False, clarification_needed="User wants to know what temperature will be used in step 2"
@@ -391,6 +392,7 @@ Analyze the user's response and determine:
 1. Did they approve the plan?
 2. Do they want modifications?
 3. Do they need clarification?
+4. If the user does NOT explicitly approve, set plan_approved=False by default.
 """
         
         # Inject context and run assessment
