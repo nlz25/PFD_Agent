@@ -15,7 +15,10 @@ dependencies = [
     "bohr-agent-sdk",
     "scipy>=1.16.2",
     "python-dotenv",
-    "sqlalchemy"
+    "sqlalchemy",
+    "streamlit>=1.32.0",
+    "requests>=2.31.0",
+    "py3dmol>=2.0.0"
 ]
 
 [build-system]
