@@ -892,37 +892,42 @@ def dflow_batch_execution(
                     "workflow_id": wf.id,
                     "message": "Workflow completed but artifacts not found",
                 }
-            # Create download directory
-            download_path = Path(f"./{func.__name__}_results")
-            download_path.mkdir(exist_ok=True)
+            # Create unique download directory with timestamp + random suffix
+            work_dir = Path(generate_work_path())
+            download_path = work_dir / f"{func.__name__}_results"
+            download_path.mkdir(parents=True, exist_ok=True)
             download_path=download_path.resolve()
             logger.info(f"Downloading artifacts to: {download_path}")
             
             # Download all artifacts
             result = {}
             for idx,completed_step in enumerate(completed_step_list):
-                result["task_%03d" % idx]= {}
+                task_key = "task_%03d" % idx
+                task_path = download_path / task_key
+                task_path.mkdir(exist_ok=True)
+
+                result[task_key]= {}
                 for key in artifact_outputs.keys():
                     try:
                         artifact_path = download_artifact(
-                        artifact=completed_step.outputs.artifacts[key],
-                        path=download_path,
-                    )
-                        result["task_%03d" % idx][key] = artifact_path
+                            artifact=completed_step.outputs.artifacts[key],
+                            path=task_path,
+                        )
+                        result[task_key][key] = artifact_path
                     except Exception as e:
                         logger.error(f"Failed to download artifact '{key}': {e}")
-                        result["task_%03d" % idx][key] = None
+                        result[task_key][key] = None
             
                 # Get parameters from output
                 for key in parameter_outputs.keys():
                     try:
                         param_value = completed_step.outputs.parameters[key].value
-                        result["task_%03d" % idx][key] = param_value.recover() if isinstance(
-                        param_value, (dflow.argo_objects.ArgoObjectDict, dflow.argo_objects.ArgoObjectList)
-                    ) else param_value
+                        result[task_key][key] = param_value.recover() if isinstance(
+                            param_value, (dflow.argo_objects.ArgoObjectDict, dflow.argo_objects.ArgoObjectList)
+                        ) else param_value
                     except Exception as e:
                         logger.error(f"Failed to get parameter '{key}': {e}")
-                        result["task_%03d" % idx][key] = None
+                        result[task_key][key] = None
             result["workflow_id"] = wf.id
             result["status"] = "success"
             result["download_path"] = str(download_path.resolve())

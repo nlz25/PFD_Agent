@@ -395,8 +395,7 @@ def model_test(
     Returns:
         Dictionary containing:
             - status: "success" or "error"
-            - test_metrics: List of metric dictionaries, one per test dataset, each containing:
-                * system_idx: Index identifier for the test dataset
+            - test_metrics: Dict mapping dataset index ("00", "01", etc.) to metrics:
                 * mae_e: Mean absolute error for total energy (eV)
                 * rmse_e: Root mean square error for total energy (eV)
                 * mae_e_atom: Mean absolute error for energy per atom (eV/atom)
@@ -404,7 +403,9 @@ def model_test(
                 * mae_f: Mean absolute error for forces (eV/Å)
                 * rmse_f: Root mean square error for forces (eV/Å)
                 * n_frames: Number of structures tested
-            - output_dir: Path to directory containing detailed comparison files
+            - energy_files: List of paths to energy comparison files (2 columns: label, prediction)
+            - energy_per_atom_files: List of paths to per-atom energy comparison files
+            - force_files: List of paths to force comparison files (2 columns: label, prediction)
             - message: Status or error message
     
     Example:
@@ -413,8 +414,10 @@ def model_test(
         ...     test_data=Path("test_structures.extxyz"),
         ...     head="MP_traj_v024_alldata_mixu"
         ... )
-        >>> print(result["test_metrics"][0]["rmse_e_atom"])
+        >>> print(result["test_metrics"]["00"]["rmse_e_atom"])
         0.0023  # eV/atom
+        >>> print(result["energy_files"][0])
+        /path/to/test_00_.energy.txt
     """
     try:
         work_path = Path(generate_work_path()).absolute()
@@ -541,11 +544,12 @@ def model_inference(
 ) -> Dict[str, Any]:
     """Calculate energy and force for given structures using a Deep Potential model.
 
+    This tool performs ML potential inference on structures and embeds the computed properties
+    (energy, forces, stress) directly into the output extxyz file.
+
     Parameters
     - structure_path: List[Path] | Path
         Path(s) to structure file(s) (extxyz/xyz/vasp/...). Can be a multi-frame file or a list of files.
-    - model_style: str
-        ASE calculator key (e.g., "dpa").
     - model_path: Path
         Model file(s) or URL(s) for ML calculators. 
     - head (str, optional): For pretrained DPA multi-head models, an available head should be provided. 
@@ -553,7 +557,21 @@ def model_inference(
 
     Returns
     - Dict[str, Any]
-        Dictionary containing paths to labeled data file and logs.
+        Dictionary containing:
+        - status: "success" or "error"
+        - labeled_data: Path to extxyz file containing all structures with computed energy, forces, and stress
+        - message: Status or error message
+    
+    Note:
+        To extract individual properties (energy, forces, etc.) to separate text files for analysis or plotting,
+        use the `inspect_structure` tool with appropriate export flags:
+        - export_energy=True: Extract energies to energies.txt
+        - export_forces=True: Extract forces to forces.txt
+        - export_stress=True: Extract stress tensors to stresses.txt
+    
+    Example workflow:
+        1. Run model_inference to compute properties: result = model_inference("structures.extxyz", model)
+        2. Extract energy for plotting: inspect_structure(result["labeled_data"], export_energy=True)
     """
     try:
         work_path=Path(generate_work_path())
