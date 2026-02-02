@@ -1,14 +1,16 @@
-# MatCreator
 
-A Multi-agent network combines AI-oriented database and complex computational materials workflow. 
-Currently, MatCreator supports various single-point material calculations tasks as well as the PFD workflow that generate machine learning force field through fine-tuning and distillation. For example, a typical user prompt for the MatCreator agent team is like `Can you train a small DPA model for crystalline Si by distillation using the pfd workflow?`. The agent would then propose a detailed planning for the workflow and execute provided with agreement with users.
+# FFPilot
+
+FFPilot is an intelligent platform for Machine Learning Force Field (MLFF) generation and application, combining AI-driven materials databases with expert computational tools. It automates end-to-end MLFF training, fine-tuning, and deployment for complex materials tasks. For example, users can request, "Can you train a small DPA model for crystalline Si by distillation using the PFD workflow?" and FFPilot will generate a detailed plan and execute the workflow with user guidance.
+
+
 
 ## Quick start
 ### Installation
 ```bash
 # Create and activate an environment (optional but recommended)
 conda create -n pfd python=3.12 -y
-conda activate matcreator
+conda activate pfd
 
 # From the project root
 pip install -U pip
@@ -16,7 +18,7 @@ pip install -e .
 ```
 
 ### Set up MCP servers
-`MatCreator` takes a modular design principle: tools are standalone mini-packages that can be instantiated in a isolated enviroments. For example, to set up a `mcp` server for `ABACUS` DFT software, `uv run` the script: 
+FFPilot follows a modular design principle: tools are standalone mini-packages that can be instantiated in isolated environments. For example, to set up a `mcp` server for `ABACUS` DFT software, `uv run` the script: 
 
 ```bash
 cd tools/abacus
@@ -74,8 +76,14 @@ If you prefer different LLM models for sub-agents, you can override the default 
 cd agents
 adk web
 ```
-This would set up the `MatCreator` agent network. You can tune the LLM model and communication settings for the agents.
+This sets up the FFPilot agent network. You can tune the LLM model and communication settings for the agents.
 
+### Web UI
+A simple web UI that supports artifact upload/download, structure visualization and scientific plotting. The web UI server can be started with the following command:
+```bash
+cd web && python streamlit_app.py 
+```
+![The web UI for FFPilot](docs/images/agent_plot.png)
 
 ## Custom agent configuration
 ### Connecting a client agent (SSE)

@@ -46,7 +46,7 @@ import py3Dmol
 
 # Set page config
 st.set_page_config(
-    page_title="MLCreator",
+    page_title="FFPilot",
     page_icon="🔊",
     layout="centered"
 )
@@ -413,7 +413,7 @@ def send_message_sse(message, attachments=None):
         return False
 
 # UI Components
-st.title("MatCreator Agent Chat")
+st.title("FFPilot")
 
 # Sidebar for session management
 with st.sidebar:
