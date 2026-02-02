@@ -12,6 +12,7 @@ from google.adk.models.lite_llm import LiteLlm
 from google.adk.events import Event,EventActions
 from google.genai.types import Content, Part
 from pydantic import BaseModel, Field
+import json
 import logging
 from .constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 from .prompts.workflow import search_workflow_guidance,list_workflow_descriptions, get_allowed_agents_for_workflow
@@ -34,14 +35,15 @@ class PlanStep(BaseModel):
         description="Clear, concise description of what this step does (1-2 sentences)",
         max_length=500
     )
-    inputs_required: List[str] = Field(
-        default_factory=list,
-        description="List of required inputs (paths, parameters, etc.)"
+    inputs_required: str = Field(
+        ...,
+        description="Expected inputs (models, parameters, etc.)",
+        max_length=100
     )
     expected_output: str = Field(
         ...,
-        description="What artifact or result this step produces",
-        max_length=200
+        description="What result this step produces",
+        max_length=100
     )
 
 class WorkflowClassification(BaseModel):
@@ -132,14 +134,14 @@ based on the user's request, available sub-agents and workflow types.
 **Planning rules:**
 
 1. **Maximize efficiency**: 
-   - For ML potentials: ALWAYS check database_agent first for existing datasets/models
+   - For ML potentials: ALWAYS check for existing datasets and pre-trained model
    - Prefer reusing/fine-tuning existing models over training from scratch
    - Only generate new DFT data if existing data is insufficient
 
 2. **Be specific**:
    - Each step should clearly state which agent and what action
-   - Include required inputs (file paths, parameters)
-   - State expected outputs (structure files, database paths, model checkpoints)
+   - Indicate key inputs (artifacts, parameters, etc.)
+   - State expected outputs (structure, dataset, model checkpoints, property values, etc.)
 
 3. **Handle uncertainty**:
    - If user request is vague, include a clarification step
@@ -147,6 +149,15 @@ based on the user's request, available sub-agents and workflow types.
 
 **Output format:**
 Return a JSON object conforming to ExecutionPlan schema. Be concise but clear.
+
+**CRITICAL OUTPUT CONSTRAINTS:**
+- Return ONLY valid JSON (absolutely no Markdown, no code fences, no explanatory text)
+- Use double quotes for ALL keys and string values
+- Escape special characters in strings (newlines as \\n, quotes as \\")
+- NO trailing commas anywhere
+- NO comments in JSON
+- String fields must not exceed their max_length limits
+- Validate JSON syntax before responding
 
 Focus on clarity and actionability. Users need to understand what will happen before approving.
 """
@@ -170,9 +181,8 @@ class PlanningAgent(LlmAgent):
         
         for step in plan_data.steps:
             lines.append(f"\n{step.step_number}. **[{step.agent}]** {step.action}")
-            if step.inputs_required:
-                inputs = ', '.join(step.inputs_required)
-                lines.append(f"   - Inputs: {inputs}")
+            #if step.inputs_required:
+            lines.append(f"   - Inputs: {step.inputs_required}")
             lines.append(f"   - Output: {step.expected_output}")
         
         if plan_data.workflow_type:
@@ -287,28 +297,88 @@ class PlanningAgent(LlmAgent):
         self.output_schema = ExecutionPlan
 
         plan_data = None
-        
-        async for event in super()._run_async_impl(ctx):
-                # Don't yield the raw JSON event - we'll format it nicely
-            if event.is_final_response() and event.content:
-                try:
-                    import json
-                    text_data = event.content.parts[0].text.strip()
-                    if text_data.startswith('{'):
-                        parsed_json = json.loads(text_data)
-                        plan_data = ExecutionPlan(**parsed_json)
-                        break
-                except Exception as e:
-                    logger.error(f"Failed to parse execution plan: {e}")
-                
-                # Yield intermediate events (thinking, etc.)
-            if not (event.is_final_response() and event.content):
-                yield event
-        
-        # Restore default planning instruction for subsequent runs
-        self.instruction = _PLANNING_INSTRUCTION
 
-        
+        # Preserve and restore original instruction/schema even if streaming fails
+        original_instruction = _PLANNING_INSTRUCTION
+        original_schema = self.output_schema
+
+        def _extract_json_block(text: str) -> Optional[str]:
+            """Best-effort extraction and cleaning of JSON object from text."""
+            if not text:
+                return None
+            stripped = text.strip()
+            
+            # Remove markdown code fences
+            if stripped.startswith("```") and stripped.endswith("```"):
+                stripped = stripped.strip("`").strip()
+                if stripped.lower().startswith("json"):
+                    stripped = stripped[4:].strip()
+            
+            # Find outermost braces
+            start = stripped.find('{')
+            end = stripped.rfind('}')
+            if start == -1 or end == -1 or end <= start:
+                return None
+            
+            json_str = stripped[start:end + 1]
+            
+            # Common fixes for malformed JSON
+            # Remove trailing commas before closing braces/brackets
+            import re
+            json_str = re.sub(r',\s*([}\]])', r'\1', json_str)
+            # Fix unescaped newlines in strings (basic attempt)
+            # This is complex, so we'll rely on json.loads to catch it
+            
+            return json_str
+
+        try:
+            async for event in super()._run_async_impl(ctx):
+                if event.is_final_response() and event.content:
+                    try:
+                        import json
+                        parts = event.content.parts or []
+                        text_data = parts[0].text if parts else ""
+                        logger.info(f"Raw LLM output for planning: {text_data}")
+                        
+                        json_blob = _extract_json_block(text_data)
+                        if not json_blob:
+                            raise ValueError("No JSON block found in LLM response")
+                        
+                        # Try parsing
+                        parsed_json = json.loads(json_blob)
+                        plan_data = ExecutionPlan(**parsed_json)
+                        logger.info("Successfully parsed ExecutionPlan")
+                        
+                    except json.JSONDecodeError as e:
+                        logger.error(f"JSON parsing failed: {e}")
+                        # Yield error message with raw output for debugging
+                        error_msg = (
+                            f"❌ **Failed to parse execution plan due to JSON formatting error:**\n"
+                            f"```\n{str(e)}\n```\n\n"
+                            f"**Raw LLM output:**\n```\n{text_data[:1000]}...\n```\n\n"
+                            f"Please try again or rephrase your request."
+                        )
+                        yield Event(
+                            content=Content(parts=[Part(text=error_msg)]),
+                            author=self.name
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to parse execution plan: {e}")
+                        error_msg = (
+                            f"❌ **Failed to create execution plan:**\n"
+                            f"Error: {str(e)}\n\n"
+                            f"**Raw response:**\n```\n{text_data[:1000]}...\n```\n\n"
+                            f"Please try rephrasing your request."
+                        )
+                        yield Event(
+                            content=Content(parts=[Part(text=error_msg)]),
+                            author=self.name
+                        )
+        finally:
+            # Restore defaults so future invocations start cleanly
+            self.instruction = original_instruction
+            self.output_schema = original_schema
+
         # After plan creation, persist and present the plan
         if plan_data:
             logger.info(f"Phase 2 complete: Plan created for goal '{plan_data.goal}'")
@@ -329,7 +399,6 @@ class PlanningAgent(LlmAgent):
                 "needs_replanning": False
             }
             event_action = EventActions(state_delta=state_update)
-            
             # Format and present the plan nicely
             formatted_plan = self._format_plan(plan_data)
             yield Event(
@@ -353,7 +422,7 @@ class PlanningAgent(LlmAgent):
             logger.info("Phase 1: Understanding user intent and proposing goal...")
             async for event in self._classify_workflow(ctx):
                 yield event
-            return
+            #return
 
         # PHASE 2: Create detailed plan with workflow guidance
         else:

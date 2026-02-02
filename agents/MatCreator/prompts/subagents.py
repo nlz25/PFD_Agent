@@ -9,6 +9,7 @@ from ..abacus_agent.agent import abacus_agent
 from ..dpa_agent.agent import dpa_agent
 from ..vasp_agent.agent import vasp_agent
 from ..structure_agent.agent import structure_agent
+from ..util_agent import util_agent
 
 # Master registry of sub-agents available to the MatCreator workflow
 SUBAGENTS: Dict[str, object] = {
@@ -17,6 +18,7 @@ SUBAGENTS: Dict[str, object] = {
     "abacus_agent": abacus_agent,
     "vasp_agent": vasp_agent,
     "dpa_agent": dpa_agent,
+    "util_agent": util_agent,
 }
 
 def _get_subagent_descriptions() -> Dict[str, str]:
