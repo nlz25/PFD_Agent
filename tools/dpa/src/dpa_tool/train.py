@@ -650,7 +650,9 @@ def _run_dp_training(
         "test_data": List[Path],
     },
     artifact_outputs={
-        "output_dir": Path,
+        "energy_files": List[Path],
+        "energy_per_atom_files": List[Path],
+        "force_files": List[Path],
     },
     parameter_inputs={
         "workdir": Path,
@@ -674,8 +676,10 @@ def _evaluate_trained_model(
     
     Returns:
         Dict with keys:
-            - output_dir: Path to test output directory
-            - test_metrics: JSON string of test metrics list
+            - energy_files: List of paths to energy comparison files (label vs prediction)
+            - energy_per_atom_files: List of paths to per-atom energy comparison files
+            - force_files: List of paths to force comparison files
+            - test_metrics: Dict mapping dataset index to metrics (MAE, RMSE for energy and forces)
             - message: Status/error message
     """
     try:
@@ -744,9 +748,16 @@ def _evaluate_trained_model(
             logging.info(f"Test completed on {len(atoms_ls)} frames. Metrics: {metrics}")
             results[f"{idx:02d}"] = metrics
 
+        # Collect all file paths
+        energy_files = sorted(out_dir.glob("*_.energy.txt"))
+        energy_per_atom_files = sorted(out_dir.glob("*_.energy_per_atom.txt"))
+        force_files = sorted(out_dir.glob("*_.force.txt"))
+        
         return {
             "status": "success",
-            "output_dir": out_dir.resolve(),
+            "energy_files": [f.resolve() for f in energy_files],
+            "energy_per_atom_files": [f.resolve() for f in energy_per_atom_files],
+            "force_files": [f.resolve() for f in force_files],
             "test_metrics": results,
             "message": f"Model evaluation completed on {len(test_data)} dataset(s)"
             }
@@ -754,7 +765,9 @@ def _evaluate_trained_model(
         logging.error(f"Error in model evaluation: {str(e)}")
         return {
             "status": "error",
-            "output_dir": workdir / "test_output",
+            "energy_files": [],
+            "energy_per_atom_files": [],
+            "force_files": [],
             "test_metrics": {},
             "message": f"Model evaluation failed: {e}"
             }
@@ -800,8 +813,6 @@ def model_inference(
     Parameters
     - structure_path: List[Path] | Path
         Path(s) to structure file(s) (extxyz/xyz/vasp/...). Can be a multi-frame file or a list of files.
-    - model_style: str
-        ASE calculator key (e.g., "dpa").
     - model_path: Path
         Model file(s) or URL(s) for ML calculators. 
     - head (str, optional): For pretrained DPA multi-head models, an available head should be provided. 
@@ -809,7 +820,13 @@ def model_inference(
 
     Returns
     - Dict[str, Any]
-        Dictionary containing paths to labeled data file and logs.
+        Dictionary containing:
+        - labeled_data: Path to extxyz file with structures and computed energy, forces, and stress
+        - message: Status message
+        
+    Note:
+        To extract energy and force values to separate files, use the `inspect_structure` tool
+        with export_energy=True and export_forces=True flags.
     """
     try:
         calc=DP(
@@ -836,13 +853,14 @@ def model_inference(
             atoms.info['energy'] = energy
             atoms.set_array('forces', forces)
             atoms.info['stress'] = stress
+        
         labeled_data = "ase_results.extxyz"
         write(labeled_data, atoms_ls, format="extxyz")
         
         result = {
             "status": "success",
             "labeled_data": str(Path(labeled_data).resolve()),
-            "message": f"ASE calculation completed for {len(atoms_ls)} structures."
+            "message": f"ASE calculation completed for {len(atoms_ls)} structures. Use inspect_structure tool to extract properties."
         }
     except Exception as e:
         logging.error(f"Error in ase_calculation: {str(e)}")
