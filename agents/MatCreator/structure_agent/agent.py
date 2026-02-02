@@ -15,7 +15,7 @@ model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)
 model_base_url = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
 
 description = """
-Build, inspect, modify, and curate diverse atomic structures.
+Build, inspect, modify, and curate diverse atomic structures using ase-based tool.
 """
 
 instruction = """

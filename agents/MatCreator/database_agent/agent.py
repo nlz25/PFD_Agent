@@ -1,4 +1,4 @@
-from google.adk.agents import Agent
+from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool import McpToolset
@@ -80,7 +80,7 @@ toolset = McpToolset(
     )
 )
 
-database_agent = Agent(
+database_agent = LlmAgent(
     name='database_agent',
     model=LiteLlm(
         model=model_name,

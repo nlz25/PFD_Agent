@@ -26,7 +26,7 @@ WORKFLOW_GUIDANCE_LIBRARY = {
         keywords=[
         ],
         description="DO NOT USE unless neccessary! Iterative and robust pre-training, fine-tuning and distillation (PFD) workflow that generate machine learning force fields from pre-trained model.",
-        allowed_agents=["structure_agent", "abacus_agent", "dpa_agent"],
+        allowed_agents=["structure_agent", "abacus_agent", "dpa_agent","plot_agent"],
         instruction="""
     PFD workflows coordinate iterative fine-tuning or distillation of ML force fields from a pre-trained model.
 
@@ -50,7 +50,7 @@ WORKFLOW_GUIDANCE_LIBRARY = {
     - structure_agent: structure building, perturbation, entropy-based curation.
     - abacus_agent: DFT calculations and labeling with ABACUS.
     - dpa_agent: MD simulation, labeling with DPA, and model training.
-
+    - plot_agent: Visualization and plotting of results.
     **Outputs and failures**
     - After each step: report absolute artifact paths and key metrics; propose the next step.
     - On error: show the exact message and propose one concrete alternative; confirm before proceeding.

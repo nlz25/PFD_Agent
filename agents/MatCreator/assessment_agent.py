@@ -559,6 +559,8 @@ Provide clear reasoning based on the conversation and execution progress.
                 message = f"✅ **Task Complete**\n\n{assessment_data.reason}"
             
             elif assessment_data.next_action == "replan":
+                state_update["goal_achieved"] = False
+                #state_update["goal_confirmed"] = False
                 state_update["execution_started"] = False
                 state_update["plan_confirmed"] = False
                 state_update["pending_confirmation"] = False

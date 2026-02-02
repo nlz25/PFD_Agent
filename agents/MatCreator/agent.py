@@ -134,8 +134,12 @@ class MatCreatorFlowAgent(LlmAgent):
                 # Delegate to execution agent - completes in single invocation
                 async for event in execution_agent.run_async(ctx):
                     yield event
-                
+                    
                 logger.info("Plan execution completed, will assess on next user input")
+                yield Event(
+                    content=Content(parts=[Part(text="Execution complete. Please review results and provide feedback.")]),
+                    author=self.name,
+                )
                 return  # Execution complete, wait for user input to trigger assessment
         
         # Safety: exceeded max iterations

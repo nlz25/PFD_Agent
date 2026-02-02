@@ -51,9 +51,9 @@ def _run_md_stage(atoms, stage, save_interval_steps, traj_file, seed, stage_id):
     pressure = stage.get('pressure', None)
     mode = stage['mode']
     runtime_ps = stage['runtime_ps']
-    timestep_ps = stage.get('timestep', 0.0005)  # default: 0.5 fs
-    tau_t_ps = stage.get('tau_t', 0.01)         # default: 10 fs
-    tau_p_ps = stage.get('tau_p', 0.1)          # default: 100 fs
+    timestep_ps = stage.get('timestep_ps', 0.0005)  # default: 0.5 fs
+    tau_t_ps = stage.get('tau_t_ps', 0.01)         # default: 10 fs
+    tau_p_ps = stage.get('tau_p_ps', 0.1)          # default: 100 fs
 
     timestep_fs = timestep_ps * 1000  # convert to fs
     total_steps = int(runtime_ps * 1000 / timestep_fs)
@@ -178,7 +178,7 @@ def _run_md_stage(atoms, stage, save_interval_steps, traj_file, seed, stage_id):
         "model_path": Path,
     },
     artifact_outputs={
-        "traj": Path,
+        "traj": List[Path],
         "log": Path,
     },
     parameter_inputs={
@@ -226,9 +226,11 @@ def _run_md(
         logger.info("Starting molecular dynamics simulation")
         logger.info(f"Number of atoms: {len(atoms)}")
         logger.info(f"Number of stages: {len(stages)}")
-                
-                # run MD stages using _run_md_pipeline pattern
-                
+
+        # Track trajectory files to return only the last one
+        trajectory_files: List[Path] = []
+
+        # run MD stages using _run_md_pipeline pattern
         for i, stage in enumerate(stages):
             mode = stage.get('mode', 'NVT')
             T = stage.get('temperature_K', 'NA')
@@ -239,6 +241,7 @@ def _run_md(
             if P != 'NA':
                 tag += f"_{P}GPa"
             traj_file = traj_dir / f"{traj_prefix}_{tag}.extxyz"
+            trajectory_files.append(traj_file)
                     
             logger.info(f"Starting stage {i+1}: {mode} ensemble, T={T}K, runtime={runtime_ps}ps")
                     
@@ -272,7 +275,8 @@ def _run_md(
             json.dump(status_info, fp, indent=2)
             
         results = {
-            "traj": traj_dir,
+            #"traj": last_traj,
+            "traj": trajectory_files,
             "log": Path("md_simulation.log"),
             "status": Path("status.json"),
             "message": "MD simulation completed successfully"
@@ -301,7 +305,7 @@ def _run_md(
             traj_dir.mkdir(parents=True, exist_ok=True)
             
         results = {
-            "traj": traj_dir,
+            "traj": trajectory_files if 'trajectory_files' in locals() else [],
             "log": Path("md_simulation.log"),
             "status": Path("status.json"),
             "message": f"MD simulation failed: {e}"

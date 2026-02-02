@@ -20,8 +20,7 @@ bohrium_password = os.environ.get("BOHRIUM_PASSWORD", BOHRIUM_PASSWORD)
 bohrium_project_id = int(os.environ.get("BOHRIUM_PROJECT_ID", BOHRIUM_PROJECT_ID))
 
 description="""
-You are the DPA Agent for Deep Potential workflows. You inspect/split datasets,
-validate configs, train DPA models, and run ASE-based MD and structure optimization using DPA.
+You are the DPA Agent for Deep Potential workflows. You test, validate and train DPA models, and run ASE-based MD and structure optimization using DPA model.
 """
 
 instruction ="""
@@ -172,8 +171,8 @@ dpa_agent = LlmAgent(
         base_url=model_base_url,
         api_key=model_api_key
     ),
-    disallow_transfer_to_parent=True,
-    disallow_transfer_to_peers=True,
+    disallow_transfer_to_parent=False,
+    disallow_transfer_to_peers=False,
     description=description,
     instruction=instruction,
     tools=[
