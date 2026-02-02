@@ -463,10 +463,174 @@ def build_supercell_impl(
 	return result
 
 
-def inspect_structure_impl(
-	structure_path: Union[str, Path]
+def transform_lattice_impl(
+	structure_path: Union[str, Path],
+	scale: Optional[Union[float, List[float]]] = None,
+	strain: Optional[Union[List[float], List[List[float]]]] = None,
+	rotation: Optional[Union[List[float], List[List[float]]]] = None,
+	transform_matrix: Optional[List[List[float]]] = None,
+	scale_atoms: bool = True,
+	output_format: str = "extxyz",
+	output_path: Optional[Union[str, Path]] = None,
 ) -> Dict[str, Any]:
-	"""Inspect an ASE-readable structure file and summarize its metadata."""
+	"""Apply lattice transformations: scaling, strain, rotation, or custom matrix.
+
+	This function reads a structure, transforms its lattice vectors according to
+	the specified operation(s), and writes the result to disk. Multiple operations
+	can be combined and are applied in order: scale → strain → rotation → transform_matrix.
+
+	Args:
+		structure_path: Input structure file path.
+		scale: Uniform (float) or anisotropic ([a, b, c]) scaling factors.
+			Example: 0.97 compresses by 3%, [1.0, 1.0, 0.95] compresses c-axis by 5%.
+		strain: Strain tensor in Voigt notation [e_xx, e_yy, e_zz, e_yz, e_xz, e_xy]
+			or full 3x3 symmetric strain tensor. Applied as: new_cell = (I + strain) @ cell.
+		rotation: Euler angles [alpha, beta, gamma] in degrees (ZYZ convention) or
+			a 3x3 rotation matrix. Rotates lattice vectors.
+		transform_matrix: Arbitrary 3x3 transformation matrix applied as: new_cell = matrix @ cell.
+		scale_atoms: If True, atomic positions are scaled with the lattice (fractional
+			coordinates preserved). If False, Cartesian positions are kept fixed.
+		output_format: Output file format (extxyz, xyz, cif, vasp, etc.).
+		output_path: Optional explicit output path; auto-generated if omitted.
+
+	Returns:
+		Dictionary with status, paths, original/transformed cell parameters.
+	"""
+
+	fmt = output_format.lower()
+	extension_map = {
+		"extxyz": "extxyz",
+		"xyz": "xyz",
+		"cif": "cif",
+		"vasp": "vasp",
+		"poscar": "vasp",
+		"json": "json",
+	}
+	file_extension = extension_map.get(fmt, fmt)
+
+	try:
+		from ase.io import read
+		from scipy.spatial.transform import Rotation as R
+
+		atoms = read(str(structure_path))
+		original_cell = atoms.get_cell().array.copy()
+		new_cell = original_cell.copy()
+
+		# Track applied operations
+		operations = []
+
+		# 1. Apply scaling
+		if scale is not None:
+			if isinstance(scale, (int, float)):
+				new_cell = new_cell * scale
+				operations.append(f"uniform_scale={scale}")
+			else:
+				scale_array = np.array(scale).reshape(3)
+				new_cell = new_cell * scale_array.reshape(3, 1)
+				operations.append(f"anisotropic_scale={scale}")
+
+		# 2. Apply strain
+		if strain is not None:
+			strain_array = np.array(strain)
+			if strain_array.shape == (6,):
+				# Voigt notation: [e_xx, e_yy, e_zz, e_yz, e_xz, e_xy]
+				strain_tensor = np.array([
+					[strain_array[0], strain_array[5], strain_array[4]],
+					[strain_array[5], strain_array[1], strain_array[3]],
+					[strain_array[4], strain_array[3], strain_array[2]],
+				])
+				operations.append(f"strain_voigt={strain_array.tolist()}")
+			elif strain_array.shape == (3, 3):
+				strain_tensor = strain_array
+				operations.append("strain_tensor=3x3")
+			else:
+				raise ValueError(
+					"strain must be length-6 Voigt notation or 3x3 tensor"
+				)
+			# Apply: new_cell = (I + strain) @ cell
+			new_cell = (np.eye(3) + strain_tensor) @ new_cell
+
+		# 3. Apply rotation
+		if rotation is not None:
+			rotation_array = np.array(rotation)
+			if rotation_array.shape == (3,):
+				# Euler angles in degrees (ZYZ convention)
+				rot_matrix = R.from_euler('ZYZ', rotation_array, degrees=True).as_matrix()
+				operations.append(f"euler_angles={rotation_array.tolist()}")
+			elif rotation_array.shape == (3, 3):
+				rot_matrix = rotation_array
+				operations.append("rotation_matrix=3x3")
+			else:
+				raise ValueError(
+					"rotation must be 3 Euler angles or 3x3 rotation matrix"
+				)
+			new_cell = rot_matrix @ new_cell
+
+		# 4. Apply custom transformation matrix
+		if transform_matrix is not None:
+			transform_array = np.array(transform_matrix)
+			if transform_array.shape != (3, 3):
+				raise ValueError("transform_matrix must be 3x3")
+			new_cell = transform_array @ new_cell
+			operations.append("custom_transform=3x3")
+
+		# Apply the transformation
+		atoms.set_cell(new_cell, scale_atoms=scale_atoms)
+
+		# Determine output path
+		if output_path:
+			destination = Path(output_path).expanduser()
+			destination.parent.mkdir(parents=True, exist_ok=True)
+		else:
+			work_dir = Path(generate_work_path())
+			work_dir.mkdir(parents=True, exist_ok=True)
+			formula = atoms.get_chemical_formula(empirical=True)
+			filename = f"{_sanitize_token(formula)}-transformed.{file_extension}"
+			destination = (work_dir / filename).resolve()
+
+		write(destination, atoms, format=fmt)
+
+		result = {
+			"status": "success",
+			"message": "Lattice transformation completed successfully.",
+			"structure_path": str(destination),
+			"original_cell": original_cell.tolist(),
+			"transformed_cell": new_cell.tolist(),
+			"operations_applied": operations,
+			"scale_atoms": scale_atoms,
+			"num_atoms": len(atoms),
+		}
+	except Exception as exc:
+		logger.error("Failed to transform lattice: %s", exc)
+		result = {
+			"status": "error",
+			"message": f"Failed to transform lattice: {exc}",
+			"structure_path": "",
+			"original_cell": [],
+			"transformed_cell": [],
+			"operations_applied": [],
+			"scale_atoms": scale_atoms,
+			"num_atoms": 0,
+		}
+
+	return result
+
+
+def inspect_structure_impl(
+	structure_path: Union[str, Path],
+	export_volume: bool = False,
+	export_cell_parameters: bool = False,
+	export_density: bool = False,
+	export_positions: bool = False,
+	export_forces: bool = False,
+	export_energy: bool = False,
+	export_stress: bool = False,
+	output_dir: Optional[Union[str, Path]] = None,
+) -> Dict[str, Any]:
+	"""Inspect an ASE-readable structure file and summarize its metadata.
+	
+	Optionally export detailed properties to separate files controlled by boolean flags.
+	"""
 
 	try:
 		from ase.io import read
@@ -485,27 +649,150 @@ def inspect_structure_impl(
 
 		formulas = [frame.get_chemical_formula(empirical=True) for frame in frames]
 		num_atoms_per_frame = [len(frame) for frame in frames]
-		#cells = [frame.cell.tolist() for frame in frames]
-		#pbc_flags = [frame.get_pbc().tolist() for frame in frames]
 		info_keys = sorted({key for frame in frames for key in frame.info.keys()})
 		array_keys = sorted({key for frame in frames for key in frame.arrays.keys()})
 
 		unique_formulas = list(sorted(set(formulas)))
 		unique_num_atoms = list(sorted(set(num_atoms_per_frame)))
+		
+		# Prepare output directory for exported properties
+		if any([export_volume, export_cell_parameters, export_density, export_positions, 
+				export_forces, export_energy, export_stress]):
+			if output_dir:
+				work_dir = Path(output_dir).expanduser()
+				work_dir.mkdir(parents=True, exist_ok=True)
+			else:
+				work_dir = Path(generate_work_path())
+				work_dir.mkdir(parents=True, exist_ok=True)
+		
 		result = {
 			"status": "success",
 			"message": f"Read {len(frames)} frame(s) from structure file.",
 			"structure_path": str(source.resolve()),
 			"num_frames": len(frames),
-			#"chemical_formula": formulas[0],
 			"chemical_formulas": unique_formulas,
-			#"num_atoms": num_atoms_per_frame[0],
 			"num_atoms": unique_num_atoms,
-			#"cells": cells,
-			#"pbc": pbc_flags,
 			"info_keys": info_keys,
 			"array_keys": array_keys,
 		}
+		
+		# Export volume if requested
+		if export_volume:
+			volumes = np.array([frame.get_volume() for frame in frames])
+			volume_file = work_dir / "volumes.txt"
+			np.savetxt(volume_file, volumes, fmt="%.8f", header="Volume (Å³)")
+			result["volume_file"] = str(volume_file.resolve())
+			result["volume_summary"] = {
+				"mean": float(volumes.mean()),
+				"std": float(volumes.std()),
+				"min": float(volumes.min()),
+				"max": float(volumes.max()),
+			}
+		
+		# Export cell parameters if requested
+		if export_cell_parameters:
+			cell_params = np.array([frame.cell.cellpar() for frame in frames])
+			cell_file = work_dir / "cell_parameters.txt"
+			np.savetxt(cell_file, cell_params, fmt="%.8f", 
+					   header="a(Å) b(Å) c(Å) alpha(°) beta(°) gamma(°)")
+			result["cell_parameters_file"] = str(cell_file.resolve())
+		
+		# Export density if requested
+		if export_density:
+			densities = []
+			for frame in frames:
+				try:
+					mass = sum(frame.get_masses())
+					volume = frame.get_volume()
+					density = mass / volume * 1.66054  # Convert amu/Å³ to g/cm³
+					densities.append(density)
+				except Exception:
+					densities.append(0.0)
+			densities = np.array(densities)
+			density_file = work_dir / "densities.txt"
+			np.savetxt(density_file, densities, fmt="%.8f", header="Density (g/cm³)")
+			result["density_file"] = str(density_file.resolve())
+			if len(densities) > 0 and densities.max() > 0:
+				result["density_summary"] = {
+					"mean": float(densities.mean()),
+					"std": float(densities.std()),
+					"min": float(densities.min()),
+					"max": float(densities.max()),
+				}
+		
+		# Export positions if requested
+		if export_positions:
+			positions_file = work_dir / "positions.extxyz"
+			# Save positions in extxyz format (preserves structure)
+			write(positions_file, frames)
+			result["positions_file"] = str(positions_file.resolve())
+		
+		# Export forces if requested
+		if export_forces and "forces" in array_keys:
+			all_forces = []
+			for frame in frames:
+				if "forces" in frame.arrays:
+					forces = frame.arrays["forces"]
+					all_forces.append(forces.flatten())
+			if all_forces:
+				forces_array = np.array(all_forces)
+				forces_file = work_dir / "forces.txt"
+				np.savetxt(forces_file, forces_array, fmt="%.8f")
+				result["forces_file"] = str(forces_file.resolve())
+				# Compute force statistics
+				force_norms = np.linalg.norm(forces_array.reshape(len(frames), -1, 3), axis=2)
+				result["forces_summary"] = {
+					"max_force_norm": float(force_norms.max()),
+					"mean_force_norm": float(force_norms.mean()),
+					"std_force_norm": float(force_norms.std()),
+				}
+		
+		# Export energy if requested
+		if export_energy:
+			energies = []
+			energy_keys = ["energy", "total_energy", "potential_energy", "free_energy"]
+			found_key = None
+			for key in energy_keys:
+				if key in info_keys:
+					found_key = key
+					break
+			
+			if found_key:
+				for frame in frames:
+					energies.append(frame.info.get(found_key, 0.0))
+				energies = np.array(energies)
+				energy_file = work_dir / "energies.txt"
+				np.savetxt(energy_file, energies, fmt="%.8f", header=f"Energy (eV) - from '{found_key}'")
+				result["energy_file"] = str(energy_file.resolve())
+				result["energy_key_used"] = found_key
+				result["energy_summary"] = {
+					"mean": float(energies.mean()),
+					"std": float(energies.std()),
+					"min": float(energies.min()),
+					"max": float(energies.max()),
+				}
+		
+		# Export stress if requested
+		if export_stress:
+			stresses = []
+			stress_keys = ["stress", "virial"]
+			found_key = None
+			for key in stress_keys:
+				if key in info_keys:
+					found_key = key
+					break
+			
+			if found_key:
+				for frame in frames:
+					stress = frame.info.get(found_key, np.zeros(6))
+					stresses.append(stress)
+				stresses = np.array(stresses)
+				stress_file = work_dir / "stresses.txt"
+				np.savetxt(stress_file, stresses, fmt="%.8f",
+						   header=f"Stress (eV/Å³) - from '{found_key}' [xx yy zz yz xz xy]")
+				result["stress_file"] = str(stress_file.resolve())
+				result["stress_key_used"] = found_key
+		
 	except Exception as exc:  # pragma: no cover - defensive
 		logger.error("Failed to inspect structure: %s", exc)
 		result = {
@@ -513,12 +800,8 @@ def inspect_structure_impl(
 			"message": f"Failed to inspect structure: {exc}",
 			"structure_path": "",
 			"num_frames": 0,
-			#"chemical_formula": "",
 			"chemical_formulas": [],
-			#"num_atoms": 0,
 			"num_atoms": [],
-			#"cells": [],
-			#"pbc": [],
 			"info_keys": [],
 			"array_keys": [],
 		}
@@ -1104,29 +1387,164 @@ def perturb_atoms(
 @mcp.tool()
 def inspect_structure(
 	structure_path: str,
+	export_volume: bool = False,
+	export_cell_parameters: bool = False,
+	export_density: bool = False,
+	export_positions: bool = False,
+	export_forces: bool = False,
+	export_energy: bool = False,
+	export_stress: bool = False,
 ):
-	"""Read an ASE-compatible structure file and return useful metadata.
+	"""Read an ASE-compatible structure file and return useful metadata. Such as energies, forces, volumes, densities, etc.
+	
+	Optionally export detailed properties to separate files for analysis or plotting.
+	By default, only basic metadata is returned. Enable specific exports as needed.
 
 	Args:
 		structure_path (str): Path to an ASE-readable structure file (extxyz, xyz, cif, vasp, ...).
+		export_volume (bool): If True, export per-frame volumes to volumes.txt
+		export_cell_parameters (bool): If True, export cell parameters (a,b,c,α,β,γ) to cell_parameters.txt
+		export_density (bool): If True, compute and export densities to densities.txt
+		export_positions (bool): If True, export atomic positions to positions.extxyz
+		export_forces (bool): If True, export forces (if available) to forces.txt
+		export_energy (bool): If True, export energies (if available) to energies.txt
+		export_stress (bool): If True, export stress tensors (if available) to stresses.txt
 
 	Returns:
-		dict: A result dictionary with keys similar to the implementation:
-		- ``status``: "success" or "error".
-		- ``message``: Short description or error message.
-		- ``structure_path``: Absolute path to the input file (or empty string on error).
-		- ``num_frames``: Number of frames read from the file.
-		- ``chemical_formulas``: List of unique chemical formulas found.
-		- ``num_atoms``: List of unique atom counts per frame.
-		- ``info_keys`` / ``array_keys``: Lists of metadata and array keys present in frames.
+		dict: A result dictionary with basic metadata and optional file paths:
+		- ``status``: "success" or "error"
+		- ``message``: Short description or error message
+		- ``structure_path``: Absolute path to the input file
+		- ``num_frames``: Number of frames read from the file
+		- ``chemical_formulas``: List of unique chemical formulas found
+		- ``num_atoms``: List of unique atom counts per frame
+		- ``info_keys`` / ``array_keys``: Metadata and array keys present in frames
+		
+		When export flags are True, additional keys are returned:
+		- ``volume_file``: Path to volumes.txt (one value per line)
+		- ``volume_summary``: Dict with mean, std, min, max volumes
+		- ``cell_parameters_file``: Path to cell_parameters.txt (6 columns: a,b,c,α,β,γ)
+		- ``density_file``: Path to densities.txt (g/cm³)
+		- ``density_summary``: Dict with mean, std, min, max densities
+		- ``positions_file``: Path to positions.extxyz
+		- ``forces_file``: Path to forces.txt (flattened, one line per frame)
+		- ``forces_summary``: Dict with max/mean/std force norms
+		- ``energy_file``: Path to energies.txt (one value per line)
+		- ``energy_summary``: Dict with mean, std, min, max energies
+		- ``energy_key_used``: Which info key was used for energy
+		- ``stress_file``: Path to stresses.txt (Voigt notation: xx,yy,zz,yz,xz,xy)
+		- ``stress_key_used``: Which info key was used for stress
 
-	Example:
-		inspect_structure("structures.extxyz")
-
+	Examples:
+		Basic inspection (default):
+		>>> inspect_structure("structures.extxyz")
+		
+		Export volumes for plotting:
+		>>> result = inspect_structure("md_trajectory.extxyz", export_volume=True)
+		>>> print(result["volume_file"])
+		/path/to/volumes.txt
+		
+		Export multiple properties:
+		>>> inspect_structure(
+		...     "labeled_data.extxyz",
+		...     export_energy=True,
+		...     export_forces=True,
+		...     export_volume=True
+		... )
 	"""
 
 	return inspect_structure_impl(
 		structure_path=structure_path,
+		export_volume=export_volume,
+		export_cell_parameters=export_cell_parameters,
+		export_density=export_density,
+		export_positions=export_positions,
+		export_forces=export_forces,
+		export_energy=export_energy,
+		export_stress=export_stress,
+	)
+
+
+@mcp.tool()
+def transform_lattice(
+	structure_path: str,
+	scale: Optional[Union[float, List[float]]] = None,
+	strain: Optional[Union[List[float], List[List[float]]]] = None,
+	rotation: Optional[Union[List[float], List[List[float]]]] = None,
+	transform_matrix: Optional[List[List[float]]] = None,
+	scale_atoms: bool = True,
+	output_format: str = "extxyz",
+):
+	"""Apply general lattice transformations to a structure.
+
+	This tool performs common lattice operations such as scaling, strain application,
+	rotation, or arbitrary linear transformations. Multiple operations can be combined
+	and are applied sequentially: scale → strain → rotation → transform_matrix.
+
+	Use Cases:
+	- Lattice compression/expansion: `scale=0.97` (3% compression)
+	- Anisotropic scaling: `scale=[1.0, 1.0, 0.95]` (compress c-axis by 5%)
+	- Apply strain: `strain=[0.02, 0.01, 0.0, 0.0, 0.0, 0.0]` (2% tensile in x, 1% in y)
+	- Rotate structure: `rotation=[45, 0, 0]` (45° around z-axis, ZYZ convention)
+	- Custom transformation: `transform_matrix=[[1,0,0],[0,1,0],[0,0,0.95]]`
+
+	Parameters:
+	- structure_path (str): Path to input structure file (extxyz, xyz, cif, vasp, etc.)
+	- scale (float | [a, b, c]): Uniform or anisotropic scaling factors.
+	  Example: 0.97 = 3% compression, [1.0, 1.0, 0.95] = 5% c-axis compression.
+	- strain ([e_xx, e_yy, e_zz, e_yz, e_xz, e_xy] | 3x3): Strain in Voigt notation
+	  or full tensor. Applied as: new_cell = (I + strain) @ cell.
+	  Example: [0.02, 0.0, 0.0, 0.0, 0.0, 0.0] = 2% tensile strain along x.
+	- rotation ([alpha, beta, gamma] | 3x3): Euler angles (degrees, ZYZ) or rotation matrix.
+	  Example: [90, 0, 0] rotates 90° around z-axis.
+	- transform_matrix (3x3): Custom transformation matrix applied as: new_cell = M @ cell.
+	- scale_atoms (bool): If True (default), atomic positions scale with lattice
+	  (fractional coords preserved). If False, Cartesian positions stay fixed.
+	- output_format (str): Output format (extxyz, xyz, cif, vasp, etc.).
+
+	Returns:
+	- status: "success" or "error"
+	- message: Outcome description
+	- structure_path: Path to transformed structure file
+	- original_cell: Original 3x3 lattice vectors
+	- transformed_cell: Transformed 3x3 lattice vectors
+	- operations_applied: List of operations performed
+	- scale_atoms: Whether atomic positions were scaled
+	- num_atoms: Number of atoms in structure
+
+	Examples:
+	1. Compress lattice uniformly by 3%:
+	   transform_lattice(structure_path="input.extxyz", scale=0.97)
+
+	2. Apply uniaxial strain along c-axis:
+	   transform_lattice(structure_path="input.extxyz", strain=[0, 0, 0.05, 0, 0, 0])
+
+	3. Rotate structure 45° around z-axis:
+	   transform_lattice(structure_path="input.extxyz", rotation=[45, 0, 0])
+
+	4. Combined: scale + strain:
+	   transform_lattice(
+		   structure_path="input.extxyz",
+		   scale=0.98,
+		   strain=[0.01, 0.01, 0, 0, 0, 0]
+	   )
+
+	Notes:
+	- All transformations preserve the chemical composition
+	- With scale_atoms=True, atoms move with the lattice (fractional coords constant)
+	- With scale_atoms=False, atoms stay at fixed Cartesian positions (may leave cell)
+	- For DFT preparation: typically use scale_atoms=True to maintain structure
+	- Strain tensor follows standard conventions: positive = tensile, negative = compressive
+	"""
+
+	return transform_lattice_impl(
+		structure_path=structure_path,
+		scale=scale,
+		strain=strain,
+		rotation=rotation,
+		transform_matrix=transform_matrix,
+		scale_atoms=scale_atoms,
+		output_format=output_format,
 	)
 
 
