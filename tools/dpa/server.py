@@ -7,21 +7,18 @@ import traceback
 import uuid
 from typing import Optional, Union, Dict, Any, List, Tuple, TypedDict,Literal
 from pathlib import Path
-from jsonschema import validate, ValidationError
 from dotenv import load_dotenv
 
 # ASE / MD imports used by DPA tools
 from ase.io import read, write
-from ase.optimize import BFGS
-from ase.constraints import ExpCellFilter
-from deepmd.calculator import DP
 from dpa_tool.train import (
-    dpa_training_meta,
-    normalize_dpa_command,
-    normalize_dpa_config,
-    _run_dp_training,
+    dp_training as _dp_training,
+    dpa_finetuning as _dpa_finetuning,
+    dpa_finetuning_multitask as _dpa_finetuning_multitask,
+    DPTrainingConfig,
+    DPAFinetuneConfig,
+    DPAMultitaskFinetuneConfig,
     _evaluate_trained_model,
-    _ensure_path_list,
     model_inference as _model_inference,
 )
 from dpa_tool.ase_md import optimize_structure as _optimize_structure
@@ -109,38 +106,6 @@ def generate_work_path(create: bool = True) -> str:
 ## DPA trainer tool implementations
 ## =========================
 
-class TrainInputDocResult(TypedDict):
-    """Input format structure for training strategies"""
-    name: str
-    description: str
-    config: str
-    command: str
-
-@mcp.tool()
-def train_input_doc() -> Dict[str, Any]:
-    """
-    Check the training input document for Deep Potential model training.
-    Returns:
-        List metadata for training a Deep Potential model. 
-        You can use these information to formulate template 'config' and 'command' dict.
-    """
-    try:
-        training_meta = dpa_training_meta()
-        return TrainInputDocResult(
-            name="Deep Potential model",
-            description=str(training_meta.get("description", "")),
-            config=str(training_meta.get("config", {}).get("doc", "")),
-            command=str(training_meta.get("command", {}).get("doc", "")),
-        )
-    except Exception as e:
-        logging.exception("Failed to get training strategy doc")
-        return TrainInputDocResult(
-            name="",
-            description="",
-            config="",
-            command="",
-        )
-
 class CheckTrainDataResult(TypedDict):
     """Result structure for get_training_data (with optional split)"""
     train_data: Path
@@ -152,7 +117,7 @@ class CheckTrainDataResult(TypedDict):
     num_valid_frames: int
     num_test_frames: int
     
-@mcp.tool()
+#@mcp.tool()
 def check_train_data(
     train_data: Path,
     valid_ratio: Optional[float] = 0.0,
@@ -271,109 +236,324 @@ def check_train_data(
         )
 
 
-class CheckInputResult(TypedDict):
-    """Result structure for check_input"""
-    valid: bool
-    message: str
-    command: Dict[str, Any]
-    config: Dict[str, Any]
-
 @mcp.tool()
-def check_input(
-    config: Dict[str, Any], #= load_json_file(CONFIG_PATH),
-    command: Optional[Dict[str, Any]] = None,#load_json_file(COMMAND_PATH),
-) -> CheckInputResult:
-    """You should validate the `config` and `command` input based on the selected strategy.
-        You need to ensure that all required fields are present and correctly formatted.
-        If any required field is missing or incorrectly formatted, return a message indicating the issue.
-        Make sure to pass this validation step before proceeding to training.
-    """
-    try:
-        training_meta = dpa_training_meta()
-        validate(config, training_meta["config"]["schema"])
-        normalized_config = normalize_dpa_config(config)
-        command_input = command or {}
-        validate(command_input, training_meta["command"]["schema"])
-        normalized_command = normalize_dpa_command(command_input)
-        return CheckInputResult(
-            valid=True,
-            message="Config is valid",
-            command=normalized_command,
-            config=normalized_config
-        )
-    except ValidationError as e:
-        logging.exception("Config validation failed")
-        return CheckInputResult(
-            valid=False,
-            message=f"Config validation failed: {e.message}",
-            command=command or {},
-            config=config
-        )
-
-class TrainingResult(TypedDict):
-    """Result structure for model training"""
-    status: str
-    model: str
-    log: str
-    message: str
-    test_metrics: Optional[List[Dict[str, Any]]]
-
-@mcp.tool()
-def training(
-    config: Dict[str, Any], #= load_json_file(CONFIG_PATH),
-    train_data: Path,# = Path(TRAIN_DATA_PATH),
-    model_path: Optional[Path] = None,
-    command: Optional[Dict[str, Any]] = None,#load_json_file(COMMAND_PATH),
-    valid_data: Optional[Union[List[Path], Path]] = None,
-    #test_data: Optional[Union[List[Path], Path]] = None,
+def dp_training(
+    train_data: Union[List[Path], Path],
+    config: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """Train a Deep Potential (DP) machine learning force field model. This tool should only be executed once all necessary inputs are gathered and validated.
-       Always use 'train_input_doc' to get the template for 'config' and 'command', and use 'check_input' to validate them before calling this tool.
+    """Train a Deep Potential model from scratch.
+    
+    This tool trains a new DP model using the provided training data and configuration.
+    All training parameters (learning rate, loss function, descriptor, fitting network, etc.)
+    are specified in the config dictionary.
     
     Args:
-        config: Configuration parameters for training (You can find an example for `config` from the 'train_input_doc' tool').
-        command: Command parameters for training (You can find an example for `command` from the 'train_input_doc' tool').
-        train_data: Path to the training dataset (required).
-        model_path (Path, optional): Path to pre-trained base model. Required for model fine-tuning.
-        valid_data (Path | List[Path], optional): Path(s) to validation dataset(s).
-        test_data (Path | List[Path], optional): Path(s) to test dataset(s) for post-training evaluation.
+        train_data: Path(s) to training data files (xyz/extxyz/vasp/...).
+                   Can be a single Path or list of Paths.
+        config: Training configuration dictionary. All fields are optional with defaults.
+                Required structure:
+                {
+                    # Training settings
+                    "numb_steps": 100,              # Number of training steps (default: 100)
+                    "impl": "pytorch",              # Backend: "pytorch" or "tensorflow" (default: "pytorch")
+                    "mixed_type": False,            # Use mixed-type dataset format (default: False)
+                    "type_map": ["H", "C", ...],    # Element type map (default: all elements)
+                    
+                    # Learning rate schedule
+                    "lr_type": "exp",               # Learning rate type (default: "exp")
+                    "decay_steps": 100,             # LR decay interval (default: 100)
+                    "start_lr": 0.001,              # Starting learning rate (default: 0.001)
+                    "stop_lr": 3.51e-08,            # Stopping learning rate (default: 3.51e-08)
+                    
+                    # Loss function weights
+                    "loss_type": "ener",            # Loss type (default: "ener")
+                    "start_pref_e": 0.02,           # Starting energy prefactor (default: 0.02)
+                    "limit_pref_e": 1.0,            # Limit energy prefactor (default: 1.0)
+                    "start_pref_f": 1000.0,         # Starting force prefactor (default: 1000.0)
+                    "limit_pref_f": 1.0,            # Limit force prefactor (default: 1.0)
+                    "start_pref_v": 0.0,            # Starting virial prefactor (default: 0.0)
+                    "limit_pref_v": 0.0,            # Limit virial prefactor (default: 0.0)
+                    
+                    # Descriptor parameters
+                    "rcut": 8.0,                    # Cutoff radius (default: 8.0)
+                    "rcut_smth": 0.5,               # Smooth cutoff radius (default: 0.5)
+                    "descriptor_neuron": [25, 50, 100],  # Neurons in descriptor layers (default: [25, 50, 100])
+                    
+                    # Fitting network parameters
+                    "neuron": [240, 240, 240],      # Neurons in fitting net layers (default: [240, 240, 240])
+                    "resnet_dt": False,             # Use ResNet with dt (default: False)
+                    
+                    # Validation data splitting (automatic if not providing separate valid_data)
+                    "split_ratio": 0.1,             # Fraction for validation (default: 0.1)
+                    "shuffle": True,                # Shuffle before splitting (default: True)
+                    "seed": None,                   # Random seed for shuffling (default: None)
+                }
     
+    Returns:
+        Dictionary containing:
+            - status: "success" or "error"
+            - model: Path to trained model file (.pt or .pb)
+            - log: Path to training log file
+            - message: Status message
+    
+    Example:
+        >>> config = {
+        ...     "numb_steps": 1000,
+        ...     "start_lr": 0.001,
+        ...     "stop_lr": 1e-8,
+        ...     "rcut": 6.0,
+        ...     "split_ratio": 0.2
+        ... }
+        >>> result = dp_training(
+        ...     train_data=Path("training_data.xyz"),
+        ...     config=config
+        ... )
+        >>> print(result["model"])  # Path to trained model
     """
     try:
-        training_meta = dpa_training_meta()
-        validate(config, training_meta["config"]["schema"])
-        normalized_config = normalize_dpa_config(config)
-        command_input = command or {}
-        validate(command_input, training_meta["command"]["schema"])
-        normalized_command = normalize_dpa_command(command_input)
-
         work_path = Path(generate_work_path()).absolute()
         work_path.mkdir(parents=True, exist_ok=True)
-
-        train_paths = _ensure_path_list(train_data)
-        valid_paths = _ensure_path_list(valid_data)
         
-
-        train_result = _run_dp_training(
+        train_paths = [Path(train_data)] if isinstance(train_data, (str, Path)) else [Path(p) for p in train_data]
+        
+        # Validate and convert config dict to Pydantic model
+        training_config = DPTrainingConfig(**config)
+        
+        result = _dp_training(
             workdir=work_path,
-            config=normalized_config,
-            command=normalized_command,
             train_data=train_paths,
-            valid_data=valid_paths,
-            model_path=model_path,
-            workflow_name=f"dpa-training-{int(time.time())}",
+            config=training_config,
         )
-        result = train_result
-
+        return result
     except Exception as e:
-        logging.exception("Training failed")
-        result = {
+        logging.exception("DP training failed")
+        return {
             "status": "error",
-            "model": None,
-            "log": None,
-            "message": f"Training failed: {str(e)}",
+            "model": work_path / "model.ckpt.pt" if 'work_path' in locals() else Path(""),
+            "log": work_path / "train.log" if 'work_path' in locals() else Path(""),
+            "message": f"DP training failed: {str(e)}",
         }
-    return result
+
+@mcp.tool()
+def dpa_finetuning(
+    train_data: Union[List[Path], Path],
+    base_model: Path,
+    config: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Finetune a pretrained DPA model on new data (single-task).
+    
+    This tool finetunes an existing DPA model using new training data.
+    Useful for adapting a pretrained model to specific systems or improving accuracy on new data.
+    The pretrained model's descriptor is frozen; only the fitting network and loss weights are updated.
+    
+    Args:
+        train_data: Path(s) to training data files (xyz/extxyz/vasp/...).
+                   Can be a single Path or list of Paths.
+        base_model: Path to pretrained model (.pt or .pb) to finetune.
+                   This model provides the frozen descriptor.
+        config: Finetuning configuration dictionary. All fields are optional with defaults.
+                Required structure:
+                {
+                    # Training settings
+                    "numb_steps": 100,              # Number of finetuning steps (default: 100)
+                    "mixed_type": False,            # Use mixed-type dataset format (default: False)
+                    "type_map": ["H", "C", ...],    # Element type map (default: all elements)
+                    "head": None,                   # Model head to finetune (default: None = reinitialize)
+                    
+                    # Learning rate schedule
+                    "lr_type": "exp",               # Learning rate type (default: "exp")
+                    "decay_steps": 100,             # LR decay interval (default: 100)
+                    "start_lr": 0.001,              # Starting learning rate (default: 0.001)
+                    "stop_lr": 3.51e-08,            # Stopping learning rate (default: 3.51e-08)
+                    
+                    # Loss function weights
+                    "loss_type": "ener",            # Loss type (default: "ener")
+                    "start_pref_e": 0.02,           # Starting energy prefactor (default: 0.02)
+                    "limit_pref_e": 1.0,            # Limit energy prefactor (default: 1.0)
+                    "start_pref_f": 1000.0,         # Starting force prefactor (default: 1000.0)
+                    "limit_pref_f": 1.0,            # Limit force prefactor (default: 1.0)
+                    "start_pref_v": 0.0,            # Starting virial prefactor (default: 0.0)
+                    "limit_pref_v": 0.0,            # Limit virial prefactor (default: 0.0)
+                    
+                    # Validation data splitting (automatic if not providing separate valid_data)
+                    "split_ratio": 0.1,             # Fraction for validation (default: 0.1)
+                    "shuffle": True,                # Shuffle before splitting (default: True)
+                    "seed": None,                   # Random seed for shuffling (default: None)
+                }
+    
+    Returns:
+        Dictionary containing:
+            - status: "success" or "error"
+            - model: Path to finetuned model file (.pt)
+            - log: Path to training log file
+            - message: Status message
+    
+    Example:
+        >>> config = {
+        ...     "numb_steps": 500,
+        ...     "start_lr": 0.0005,
+        ...     "start_pref_f": 2000.0,
+        ...     "split_ratio": 0.15
+        ... }
+        >>> result = dpa_finetuning(
+        ...     train_data=Path("new_system_data.xyz"),
+        ...     base_model=Path("pretrained_model.pt"),
+        ...     config=config
+        ... )
+        >>> print(result["model"])  # Path to finetuned model
+    """
+    try:
+        work_path = Path(generate_work_path()).absolute()
+        work_path.mkdir(parents=True, exist_ok=True)
+        
+        train_paths = [Path(train_data)] if isinstance(train_data, (str, Path)) else [Path(p) for p in train_data]
+        
+        # Validate and convert config dict to Pydantic model
+        finetune_config = DPAFinetuneConfig(**config)
+        
+        result = _dpa_finetuning(
+            workdir=work_path,
+            train_data=train_paths,
+            base_model=Path(base_model),
+            config=finetune_config,
+        )
+        return result
+    except Exception as e:
+        logging.exception("DPA finetuning failed")
+        return {
+            "status": "error",
+            "model": work_path / "model.ckpt.pt" if 'work_path' in locals() else Path(""),
+            "log": work_path / "train.log" if 'work_path' in locals() else Path(""),
+            "message": f"DPA finetuning failed: {str(e)}",
+        }
+
+@mcp.tool()
+def dpa_finetuning_multitask(
+    train_data: Dict[str, Union[List[Path], Path]],
+    base_model: Path,
+    config: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Finetune a pretrained DPA model with multi-task learning.
+    
+    This tool finetunes a DPA model on multiple tasks simultaneously, allowing the model
+    to learn from diverse data sources while sharing a common descriptor. Each task can
+    have its own fitting network architecture, loss function weights, and validation splitting.
+    
+    Args:
+        train_data: Dictionary mapping task names to lists of training data paths.
+                   Each task should have at least one data file.
+                   Example: {"bulk": [Path("bulk1.xyz")], "surface": [Path("surf1.xyz"), Path("surf2.xyz")]}
+        base_model: Path to pretrained DPA model (.pt) to finetune.
+                   The model's descriptor is frozen and shared across all tasks.
+        config: Multi-task finetuning configuration dictionary.
+                Required structure:
+                {
+                    # Global training settings (shared across all tasks)
+                    "numb_steps": 100,              # Number of finetuning steps (default: 100)
+                    "mixed_type": False,            # Use mixed-type dataset format (default: False)
+                    "type_map": ["H", "C", ...],    # Element type map (default: all elements)
+                    
+                    # Shared learning rate schedule (applies to all tasks)
+                    "lr_type": "exp",               # Learning rate type (default: "exp")
+                    "decay_steps": 100,             # LR decay interval (default: 100)
+                    "start_lr": 0.001,              # Starting learning rate (default: 0.001)
+                    "stop_lr": 3.51e-08,            # Stopping learning rate (default: 3.51e-08)
+                    
+                    # Per-task configurations
+                    "task_configs": {
+                        "task_name_1": {
+                            # Fitting network for this task
+                            "neuron": [240, 240, 240],      # Neurons in fitting net (default: [240, 240, 240])
+                            "resnet_dt": False,             # Use ResNet with dt (default: False)
+                            
+                            # Loss function weights for this task
+                            "loss_type": "ener",            # Loss type (default: "ener")
+                            "start_pref_e": 0.02,           # Starting energy prefactor (default: 0.02)
+                            "limit_pref_e": 1.0,            # Limit energy prefactor (default: 1.0)
+                            "start_pref_f": 1000.0,         # Starting force prefactor (default: 1000.0)
+                            "limit_pref_f": 1.0,            # Limit force prefactor (default: 1.0)
+                            "start_pref_v": 0.0,            # Starting virial prefactor (default: 0.0)
+                            "limit_pref_v": 0.0,            # Limit virial prefactor (default: 0.0)
+                            
+                            # Task sampling and validation
+                            "model_prob": 1.0,              # Task sampling probability (default: 1.0)
+                            "split_ratio": 0.1,             # Validation split fraction (default: 0.1)
+                            "shuffle": True,                # Shuffle before splitting (default: True)
+                            "seed": None,                   # Random seed for shuffling (default: None)
+                        },
+                        "task_name_2": {
+                            # ... same structure as task_name_1
+                        }
+                    }
+                }
+    
+    Returns:
+        Dictionary containing:
+            - status: "success" or "error"
+            - model: Path to finetuned multi-task model file (.pt)
+            - log: Path to training log file
+            - message: Status message with task count
+    
+    Example:
+        >>> config = {
+        ...     "numb_steps": 1000,
+        ...     "start_lr": 0.001,
+        ...     "task_configs": {
+        ...         "bulk_Cu": {
+        ...             "neuron": [128, 128, 128],
+        ...             "start_pref_f": 1000.0,
+        ...             "split_ratio": 0.1,
+        ...             "model_prob": 1.0
+        ...         },
+        ...         "Cu_surface": {
+        ...             "neuron": [240, 240, 240],
+        ...             "start_pref_f": 2000.0,
+        ...             "split_ratio": 0.15,
+        ...             "model_prob": 0.8
+        ...         }
+        ...     }
+        ... }
+        >>> train_data = {
+        ...     "bulk_Cu": [Path("bulk_train.xyz")],
+        ...     "Cu_surface": [Path("surface_train1.xyz"), Path("surface_train2.xyz")]
+        ... }
+        >>> result = dpa_finetuning_multitask(
+        ...     train_data=train_data,
+        ...     base_model=Path("pretrained_Cu_model.pt"),
+        ...     config=config
+        ... )
+        >>> print(result["model"])  # Path to multitask finetuned model
+    """
+    try:
+        work_path = Path(generate_work_path()).absolute()
+        work_path.mkdir(parents=True, exist_ok=True)
+        
+        # Convert all paths in train_data dict
+        train_data_paths = {}
+        for task_name, paths in train_data.items():
+            if isinstance(paths, (str, Path)):
+                train_data_paths[task_name] = [Path(paths)]
+            else:
+                train_data_paths[task_name] = [Path(p) for p in paths]
+        
+        # Validate and convert config dict to Pydantic model
+        multitask_config = DPAMultitaskFinetuneConfig(**config)
+        
+        result = _dpa_finetuning_multitask(
+            workdir=work_path,
+            train_data=train_data_paths,
+            base_model=Path(base_model),
+            config=multitask_config,
+        )
+        return result
+    except Exception as e:
+        logging.exception("DPA multitask finetuning failed")
+        return {
+            "status": "error",
+            "model": work_path / "model.ckpt.pt" if 'work_path' in locals() else Path(""),
+            "log": work_path / "train.log" if 'work_path' in locals() else Path(""),
+            "message": f"DPA multitask finetuning failed: {str(e)}",
+        }
 
 @mcp.tool()
 def model_test(
@@ -422,7 +602,7 @@ def model_test(
     try:
         work_path = Path(generate_work_path()).absolute()
         work_path.mkdir(parents=True, exist_ok=True)
-        test_paths = _ensure_path_list(test_data)
+        test_paths = [Path(test_data)] if isinstance(test_data, (str, Path)) else [Path(p) for p in test_data]
         logging.info(f"Evaluating model {model_path} on {len(test_paths)} test dataset(s)")
         eval_result = _evaluate_trained_model(
             workdir=work_path, 

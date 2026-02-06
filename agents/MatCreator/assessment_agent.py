@@ -100,6 +100,14 @@ class ExecutionAssessment(BaseModel):
         )
     )
     
+    needs_repurpose: bool = Field(
+        ...,
+        description=(
+            "True if user's input indicates a completely different goal or task, "
+            "requiring re-confirmation of the goal itself. False if the goal remains the same."
+        )
+    )
+    
     reason: str = Field(
         ...,
         description=(
@@ -109,12 +117,13 @@ class ExecutionAssessment(BaseModel):
         max_length=500
     )
     
-    next_action: Literal["continue_execution", "replan", "complete"] = Field(
+    next_action: Literal["continue_execution", "replan", "complete", "repurpose"] = Field(
         ...,
         description=(
             "'continue_execution': Resume executing the current plan\n"
             "'replan': User has changed requirements, create new plan\n"
-            "'complete': Goal achieved, task is done"
+            "'complete': Goal achieved, task is done\n"
+            "'repurpose': User wants a completely different goal, re-confirm goal"
         )
     )
 
@@ -191,9 +200,15 @@ You are assessing execution progress and task completion after execution has sta
 
 **Needs Replanning (replan):**
 - User explicitly requested changes to the approach
-- User asked for different/additional functionality
+- User asked for different/additional functionality within the same goal
 - User indicated the current plan won't work
 - Execution revealed fundamental issues with the plan
+
+**Needs Repurposing (repurpose):**
+- User wants to work on a completely different task/goal
+- User's new request is unrelated to the original goal
+- User explicitly abandons current work to start something new
+- The fundamental objective has changed entirely
 
 **Continue Execution (continue_execution):**
 - Execution was interrupted mid-way (user question, clarification needed)
@@ -225,8 +240,14 @@ Reason: "Structure was successfully created and saved as requested"
 **Example 3 - Changed requirements:**
 Original goal: "Fine-tune model with 100 structures"
 User just said: "Actually, use 500 structures instead and add temperature ramping"
-→ goal_achieved=False, needs_replanning=True, next_action="replan"
+→ goal_achieved=False, needs_replanning=True, needs_repurpose=False, next_action="replan"
 Reason: "User changed dataset size and added new temperature ramping requirement"
+
+**Example 4 - Completely different goal:**
+Original goal: "Train DeepMD model for silicon"
+User just said: "Never mind, I want to build a graphene structure instead"
+→ goal_achieved=False, needs_replanning=False, needs_repurpose=True, next_action="repurpose"
+Reason: "User abandoned the training task and wants a completely different task (structure building)"
 """
 
 
@@ -547,6 +568,7 @@ Provide clear reasoning based on the conversation and execution progress.
             state_update = {
                 "goal_achieved": assessment_data.goal_achieved,
                 "needs_replanning": assessment_data.needs_replanning,
+                "needs_repurpose": assessment_data.needs_repurpose,
                 "assessment_reason": assessment_data.reason,
             }
             
@@ -558,13 +580,23 @@ Provide clear reasoning based on the conversation and execution progress.
                 state_update["pending_confirmation"] = False
                 message = f"✅ **Task Complete**\n\n{assessment_data.reason}"
             
-            elif assessment_data.next_action == "replan":
+            elif assessment_data.next_action == "repurpose":
                 state_update["goal_achieved"] = False
-                #state_update["goal_confirmed"] = False
+                state_update["goal_confirmed"] = False  # Reset goal confirmation
                 state_update["execution_started"] = False
                 state_update["plan_confirmed"] = False
                 state_update["pending_confirmation"] = False
+                state_update["pending_goal_confirmation"] = False
                 state_update["plan"] = None  # Clear old plan
+                state_update["goal"] = None  # Clear old goal
+                message = f"🔄 **New Goal Detected**\n\n{assessment_data.reason}\n\nLet me understand your new objective."
+            
+            elif assessment_data.next_action == "replan":
+                state_update["goal_achieved"] = False
+                state_update["execution_started"] = False
+                state_update["plan_confirmed"] = False
+                state_update["pending_confirmation"] = False
+                #state_update["plan"] = None  # Clear old plan
                 message = f"🔄 **Replanning Required**\n\n{assessment_data.reason}\n\nI'll create a new plan based on your updated requirements."
             
             else:  # continue_execution

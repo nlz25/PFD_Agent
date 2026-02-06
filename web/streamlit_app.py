@@ -124,7 +124,6 @@ def list_sessions():
         )
         if response.status_code == 200:
             sessions = response.json()
-            print("Fetched sessions:", sessions)
             # Sort by session_id (timestamp-based) descending
             st.session_state.available_sessions = sorted(
                 sessions, 
@@ -152,7 +151,6 @@ def load_session(session_id):
         if response.status_code == 200:
             session_data = response.json()
             
-            print("Session data:", session_data)
             # Set current session
             st.session_state.session_id = session_id
             
@@ -161,46 +159,78 @@ def load_session(session_id):
             artifacts = []
             
             for event in session_data.get('events', []):
+                print(event)
                 content = event.get('content', {})
                 author = event.get('author', 'agent')
                 
                 # Determine role (user or agent)
-                role = content.get('role') or ('user' if author == 'user' else 'agent')
+                role = 'user' if author == 'user' else 'agent'
+                
+                msg_entry = {'role': role}
                 
                 # Extract text from parts
-                parts = content.get('parts', [])
+                parts = content.get('parts', [{}])
                 if not parts:
                     continue
                 
-                text = parts[0].get('text', '')
-                if not text:
-                    continue
+                # Initialize paths
+                structure_path = None
+                plot_path = None
+                model_path = None
+                text = ""
                 
-                msg_entry = {"role": role, "content": text}
                 
-                # Try to extract structure/plot/model paths from content
-                if 'structure path:' in text or 'plot:' in text or 'model:' in text:
-                    import re
-                    # Extract paths from markdown links
-                    struct_match = re.search(r'structure path: \[.*?\]\((.*?)\)', text)
-                    plot_match = re.search(r'plot: \[.*?\]\((.*?)\)', text)
-                    model_match = re.search(r'model: \[.*?\]\((.*?)\)', text)
-                    
-                    if struct_match:
-                        struct_path = struct_match.group(1)
-                        msg_entry["structure_path"] = struct_path
-                        artifacts.append({"name": os.path.basename(struct_path), "url": struct_path})
-                    
-                    if plot_match:
-                        plot_path = plot_match.group(1)
-                        msg_entry["plot_path"] = plot_path
-                        artifacts.append({"name": os.path.basename(plot_path), "url": plot_path})
-                    
-                    if model_match:
-                        model_path = model_match.group(1)
-                        msg_entry["model_path"] = model_path
-                        artifacts.append({"name": os.path.basename(model_path), "url": model_path})
+                # Process each part
+                part = parts[0]
                 
+                
+                # Extract text content
+                if "text" in part:
+                    text = part.get("text", "")
+                    
+                    # Extract paths from functionResponse (same logic as send_message_sse)
+                if "functionResponse" in part:
+                    fr = part["functionResponse"]
+                    resp = fr.get("response", {})
+                        
+                    # Check for plot path
+                    p_path = resp.get("plot_path")
+                    if p_path:
+                        plot_path = p_path
+                        artifacts.append({"name": os.path.basename(p_path), "url": p_path})
+                        
+                    # Check for structure/model paths in content
+                    contents = resp.get("content", [])
+                    for c in contents:
+                        if c.get("type") == "text" and "text" in c:
+                            try:
+                                payload = json.loads(c["text"])
+                                    # Get structure path
+                                struct_path = payload.get("structure_path") or payload.get("path")
+                                if struct_path:
+                                    structure_path = struct_path
+                                    artifacts.append({"name": os.path.basename(struct_path), "url": struct_path})
+                                    
+                                    # Get model path
+                                model_p = payload.get("model")
+                                if isinstance(model_p, list) and len(model_p) > 0:
+                                    model_path = model_p[0]
+                                    artifacts.append({"name": os.path.basename(model_p[0]), "url": model_p[0]})
+                            except json.JSONDecodeError:
+                                continue
+                
+                if text:
+                    msg_entry ["content"] = text
+                # Add extracted paths to message entry
+                if structure_path:
+                    msg_entry["structure_path"] = structure_path
+                    msg_entry["content"]="**Structure Visualization**"
+                if plot_path:
+                    msg_entry["plot_path"] = plot_path
+                    msg_entry["content"]="**Plot**"
+                    
+                if model_path:
+                    msg_entry["model_path"] = model_path
                 messages.append(msg_entry)
             
             st.session_state.messages = messages
@@ -307,7 +337,6 @@ def send_message_sse(message, attachments=None):
             for line in response.iter_lines(decode_unicode=True, chunk_size=1):
                 if not line or not line.startswith("data: "):
                     continue
-                #print(f"Received line: {line}")
                 data_str = line[len("data: "):]
                 if data_str == "[DONE]":
                     break
@@ -320,7 +349,6 @@ def send_message_sse(message, attachments=None):
                     structure_path = None
                     plot_path = None
                     model_path = None
-                    print(part)
                     # Extract text content
                     if "text" in part:
                         content = part["text"]
@@ -352,7 +380,6 @@ def send_message_sse(message, attachments=None):
                                         structure_path = struct_path
                                     # get model path
                                     model_p = payload.get("model")
-                                    print(model_p)
                                     if isinstance(model_p,list) and len(model_p) > 0:
                                         st.session_state.artifacts.append({"name": os.path.basename(model_p[0]), "url": model_p[0]})
                                         content += f"\n\nmodel: [{os.path.basename(model_p[0])}]({model_p[0]})\n\n"
@@ -506,21 +533,28 @@ with st.sidebar:
 st.subheader("Conversation")
 
 # Display messages
-for msg in st.session_state.messages:
+for msg_idx, msg in enumerate(st.session_state.messages):
+    # Skip messages that only have "role" key
+    if len(msg) == 1 and "role" in msg:
+        continue
+    
     if msg["role"] == "user":
         with st.chat_message("user"):
-            st.write(msg["content"])
+            if "content" in msg:
+                st.write(msg["content"])
             # Show attachments if present
             if "attachments" in msg and msg["attachments"]:
                 for att_path in msg["attachments"]:
                     st.caption(f"📎 {os.path.basename(att_path)}")
     else:
         with st.chat_message("agent"):
-            st.write(msg["content"])
+            if "content" in msg:
+                st.write(msg["content"])
+            
             # Show structure visualization if present
             if "structure_path" in msg and os.path.exists(msg["structure_path"]):
-                st.divider()
-                st.markdown("**Structure Visualization:**")
+                #st.divider()
+                #st.markdown("**Structure Visualization:**")
                 visualize_structure(msg["structure_path"])
                 # Add download button for structure
                 with open(msg["structure_path"], "rb") as f:
@@ -528,12 +562,12 @@ for msg in st.session_state.messages:
                         label=f"⬇️ Download {os.path.basename(msg['structure_path'])}",
                         data=f.read(),
                         file_name=os.path.basename(msg["structure_path"]),
-                        key=f"download_struct_{msg['structure_path']}"
+                        key=f"download_struct_{msg_idx}_{os.path.basename(msg['structure_path'])}"
                     )
             # Show plot if present
             if "plot_path" in msg and os.path.exists(msg["plot_path"]):
-                st.divider()
-                st.markdown("**Plot:**")
+                #st.divider()
+                #st.markdown("**Plot:**")
                 st.image(msg["plot_path"], use_container_width=True)
                 # Add download button for plot
                 with open(msg["plot_path"], "rb") as f:
@@ -541,7 +575,7 @@ for msg in st.session_state.messages:
                         label=f"⬇️ Download {os.path.basename(msg['plot_path'])}",
                         data=f.read(),
                         file_name=os.path.basename(msg["plot_path"]),
-                        key=f"download_plot_{msg['plot_path']}"
+                        key=f"download_plot_{msg_idx}_{os.path.basename(msg['plot_path'])}"
                     )
             # Show model if present
             if "model_path" in msg and os.path.exists(msg["model_path"]):
@@ -554,7 +588,7 @@ for msg in st.session_state.messages:
                         label=f"⬇️ Download {os.path.basename(msg['model_path'])}",
                         data=f.read(),
                         file_name=os.path.basename(msg["model_path"]),
-                        key=f"download_model_{msg['model_path']}"
+                        key=f"download_model_{msg_idx}_{os.path.basename(msg['model_path'])}"
                     )
             
 
