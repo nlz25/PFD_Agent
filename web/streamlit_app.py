@@ -84,6 +84,22 @@ if "uploader_key" not in st.session_state:
 if "available_sessions" not in st.session_state:
     st.session_state.available_sessions = []
 
+# Track evaluation sets
+if "eval_sets" not in st.session_state:
+    st.session_state.eval_sets = []
+
+# Track eval results
+if "eval_results" not in st.session_state:
+    st.session_state.eval_results = []
+
+# Track selected eval set
+if "selected_eval_set" not in st.session_state:
+    st.session_state.selected_eval_set = None
+
+# Track selected eval cases for deletion
+if "selected_eval_cases" not in st.session_state:
+    st.session_state.selected_eval_cases = []
+
 def visualize_structure(structure_path, height=400, width=600):
     """Visualize atomic structure using ASE and py3Dmol."""
     try:
@@ -139,6 +155,198 @@ def list_sessions():
         return False
 
 
+def list_eval_sets():
+    """Fetch all eval sets for the app."""
+    try:
+        response = requests.get(
+            f"{API_BASE_URL}/apps/{APP_NAME}/eval-sets",
+            headers={"Content-Type": "application/json"}
+        )
+        if response.status_code == 200:
+            result = response.json()
+            st.session_state.eval_sets = result.get("evalSetIds", [])
+            return True
+        else:
+            st.warning(f"Failed to fetch eval sets: {response.text}")
+            return False
+    except Exception as e:
+        st.error(f"Error fetching eval sets: {e}")
+        return False
+
+
+def create_eval_set(eval_set_name: str =None, description: str = ""):
+    """Create a new evaluation set."""
+    try:
+        # Generate unique eval set ID (alphanumeric + underscore only)
+        if eval_set_name is None:
+            eval_set_name = f"eval_{uuid.uuid4().hex[:12]}_{int(time.time())}"
+        
+        eval_set_data = {
+            "evalSet": {
+                #"eval_set_id": eval_set_id,
+                "eval_set_id": eval_set_name,
+                "name": eval_set_name,
+                "description": description,
+                "eval_cases": []
+            }
+        }
+        response = requests.post(
+            f"{API_BASE_URL}/apps/{APP_NAME}/eval-sets",
+            headers={"Content-Type": "application/json"},
+            data=json.dumps(eval_set_data)
+        )
+        if response.status_code == 200:
+            print("response:", response.json())
+            list_eval_sets()
+            return True
+        else:
+            st.error(f"Failed to create eval set: {response.text}")
+            return False
+    except Exception as e:
+        st.error(f"Error creating eval set: {e}")
+        return False
+
+
+def add_session_to_eval_set(eval_set_id: str, session_id: str):
+    """Add current session to an eval set."""
+    try:
+        # Generate unique eval case ID (alphanumeric + underscore only)
+        eval_case_id = f"eval_case_{uuid.uuid4().hex[:12]}_{int(time.time())}"
+        
+        payload = {
+            "evalId": eval_case_id,
+            "evalSetId": eval_set_id,
+            "sessionId": session_id,
+            "userId": st.session_state.user_id
+        }
+        response = requests.post(
+            f"{API_BASE_URL}/apps/{APP_NAME}/eval_sets/{eval_set_id}/add_session",
+            headers={"Content-Type": "application/json"},
+            data=json.dumps(payload)
+        )
+        if response.status_code == 200:
+            return True
+        else:
+            st.error(f"Failed to add session to eval set: {response.text}")
+            return False
+    except Exception as e:
+        st.error(f"Error adding session to eval set: {e}")
+        return False
+
+
+def run_evaluation(
+    eval_set_id: str, 
+    eval_case_ids: list = None,
+    eval_metrics: list = []
+    ):
+    """Run evaluation on an eval set."""
+    try:
+        payload = {
+            "evalCaseIds": eval_case_ids or [],
+            "evalMetrics": eval_metrics  # Can be extended to support custom metrics
+        }
+        response = requests.post(
+            f"{API_BASE_URL}/apps/{APP_NAME}/eval-sets/{eval_set_id}/run",
+            headers={"Content-Type": "application/json"},
+            data=json.dumps(payload)
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            st.error(f"Failed to run evaluation: {response.text}")
+            return None
+    except Exception as e:
+        st.error(f"Error running evaluation: {e}")
+        return None
+
+
+def list_eval_results():
+    """Fetch all eval results for the app."""
+    try:
+        response = requests.get(
+            f"{API_BASE_URL}/apps/{APP_NAME}/eval-results",
+            headers={"Content-Type": "application/json"}
+        )
+        if response.status_code == 200:
+            result = response.json()
+            st.session_state.eval_results = result.get("eval_result_ids", [])
+            return True
+        else:
+            st.warning(f"Failed to fetch eval results: {response.text}")
+            return False
+    except Exception as e:
+        st.error(f"Error fetching eval results: {e}")
+        return False
+
+
+def get_eval_result(eval_result_id: str):
+    """Get detailed results for a specific evaluation."""
+    try:
+        response = requests.get(
+            f"{API_BASE_URL}/apps/{APP_NAME}/eval-results/{eval_result_id}",
+            headers={"Content-Type": "application/json"}
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            st.error(f"Failed to get eval result: {response.text}")
+            return None
+    except Exception as e:
+        st.error(f"Error getting eval result: {e}")
+        return None
+
+
+def get_eval_case_list(eval_set_id: str):
+    """Get details of a specific eval set including its eval case IDs."""
+    try:
+        response = requests.get(
+            f"{API_BASE_URL}/apps/{APP_NAME}/eval_sets/{eval_set_id}/evals",
+            headers={"Content-Type": "application/json"}
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            st.error(f"Failed to get eval set details: {response.text}")
+            return None
+    except Exception as e:
+        st.error(f"Error getting eval set details: {e}")
+        return None
+
+
+def get_eval_case_details(eval_set_id: str, eval_case_id: str):
+    """Get detailed information for a specific eval case."""
+    try:
+        response = requests.get(
+            f"{API_BASE_URL}/apps/{APP_NAME}/eval_sets/{eval_set_id}/evals/{eval_case_id}",
+            headers={"Content-Type": "application/json"}
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            st.error(f"Failed to get eval case details: {response.text}")
+            return None
+    except Exception as e:
+        st.error(f"Error getting eval case details: {e}")
+        return None
+
+
+def delete_eval_case(eval_set_id: str, eval_case_id: str):
+    """Delete a specific eval case from an eval set."""
+    try:
+        response = requests.delete(
+            f"{API_BASE_URL}/apps/{APP_NAME}/eval_sets/{eval_set_id}/evals/{eval_case_id}",
+            headers={"Content-Type": "application/json"}
+        )
+        if response.status_code == 200:
+            return True
+        else:
+            st.error(f"Failed to delete eval case: {response.text}")
+            return False
+    except Exception as e:
+        st.error(f"Error deleting eval case: {e}")
+        return False
+
+
 def load_session(session_id):
     """Load a session and its message history."""
     try:
@@ -159,10 +367,10 @@ def load_session(session_id):
             artifacts = []
             
             for event in session_data.get('events', []):
-                print(event)
                 content = event.get('content', {})
                 author = event.get('author', 'agent')
-                
+                print('event_content:', content)
+                print('event_author:', author)
                 # Determine role (user or agent)
                 role = 'user' if author == 'user' else 'agent'
                 
@@ -403,7 +611,10 @@ def send_message_sse(message, attachments=None):
                             if plot_path and os.path.exists(plot_path):
                                 st.divider()
                                 st.markdown("**Plot:**")
-                                st.image(plot_path, use_container_width=True)
+                                st.image(plot_path, 
+                                         width='content',
+                                         #use_container_width=True
+                                         )
                             
                             # Display model if present
                             if model_path and os.path.exists(model_path):
@@ -447,12 +658,12 @@ with st.sidebar:
     st.header("Session Management")
     
     # New session button
-    if st.button("➕ New Session", use_container_width=True):
+    if st.button("➕ New Session", width='stretch'):
         if create_session():
             st.rerun()
     
     # Refresh sessions button
-    if st.button("🔄 Refresh Sessions", use_container_width=True):
+    if st.button("🔄 Refresh Sessions", width='stretch'):
         list_sessions()
         st.rerun()
     
@@ -492,11 +703,104 @@ with st.sidebar:
             
             # Session button with indicator - use idx to ensure unique keys
             label = f"{'🔵' if is_current else '⚪'} {date_str}"
-            if st.button(label, key=f"session_btn_{idx}_{session_id}", use_container_width=True, disabled=is_current):
+            if st.button(label, key=f"session_btn_{idx}_{session_id}", width='stretch', disabled=is_current):
                 if load_session(session_id):
                     st.rerun()
     else:
         st.caption("No sessions available")
+    
+    st.divider()
+    
+    # Evaluation Management Section
+    st.header("Evaluation Management")
+    
+    # Refresh eval sets button
+    if st.button("🔄 Refresh Eval Sets", width='stretch'):
+        list_eval_sets()
+        list_eval_results()
+        st.rerun()
+    
+    # Create new eval set
+    with st.expander("➕ Create New Eval Set"):
+        new_eval_name = st.text_input("Eval Set Name", key="new_eval_name")
+        new_eval_desc = st.text_area("Description (optional)", key="new_eval_desc", height=80)
+        if st.button("Create Eval Set", width='stretch'):
+            if new_eval_name:
+                if create_eval_set(new_eval_name, new_eval_desc):
+                    st.success(f"Created eval set: {new_eval_name}")
+                    st.rerun()
+            else:
+                st.warning("Please enter a name for the eval set")
+    
+    st.divider()
+    
+    # Main eval set selector and operations
+    if not st.session_state.eval_sets:
+        list_eval_sets()
+    
+    if st.session_state.eval_sets:
+        # Dropdown to select eval set
+        selected_eval = st.selectbox(
+            "Select Eval Set",
+            st.session_state.eval_sets,
+            key="eval_set_dropdown"
+        )
+        st.session_state.selected_eval_set = selected_eval
+        
+        # Add current session to selected eval set
+        if st.session_state.session_id:
+            if st.button("📝 Add Current Session", width='stretch'):
+                if add_session_to_eval_set(selected_eval, st.session_state.session_id):
+                    st.success(f"Added session to {selected_eval}")
+                    st.rerun()
+        
+        # Run evaluation button for selected eval set
+        if st.button("▶️ Run Evaluation", width='stretch', key="run_selected_eval"):
+            with st.spinner(f"Running evaluation on {selected_eval}..."):
+                result = run_evaluation(selected_eval)
+                if result:
+                    st.success("✅ Evaluation completed!")
+                    list_eval_results()
+                    st.rerun()
+        
+        st.divider()
+        
+        # Display eval cases in the selected eval set
+        # Header with delete button
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.subheader(f"Eval Cases")
+        with col2:
+            if st.session_state.selected_eval_cases:
+                if st.button("🗑️ Delete Selected", width='stretch', key="delete_selected_cases"):
+                    deleted_count = 0
+                    for case_id in st.session_state.selected_eval_cases:
+                        if delete_eval_case(selected_eval, case_id):
+                            deleted_count += 1
+                    
+                    if deleted_count > 0:
+                        st.success(f"✅ Deleted {deleted_count} eval case(s)")
+                        st.session_state.selected_eval_cases = []
+                        st.rerun()
+        
+        eval_case_ids = get_eval_case_list(selected_eval)
+        
+        if eval_case_ids:
+            # Display each case with a checkbox
+            for idx, case_id in enumerate(eval_case_ids):
+                is_selected = case_id in st.session_state.selected_eval_cases
+                print("details for case_id:", get_eval_case_details(selected_eval, case_id))
+                # Create checkbox for selection
+                if st.checkbox(f"📋 {case_id}", value=is_selected, key=f"case_checkbox_{idx}_{case_id}"):
+                    if case_id not in st.session_state.selected_eval_cases:
+                        st.session_state.selected_eval_cases.append(case_id)
+                else:
+                    if case_id in st.session_state.selected_eval_cases:
+                        st.session_state.selected_eval_cases.remove(case_id)
+        else:
+            st.info("No eval cases in this eval set. Add sessions to create eval cases.")
+    else:
+        st.caption("No eval sets available")
     
     st.divider()
     st.caption("This app interacts with the MatCreator Agent via the ADK API Server.")
@@ -522,99 +826,159 @@ with st.sidebar:
                                 data=f.read(),
                                 file_name=name,
                                 key=f"download_artifact_{idx}_{name}",
-                                use_container_width=True
+                                width='stretch'
                             )
                     except Exception as e:
                         st.caption("❌")
     else:
         st.caption("No artifacts yet")
 
-# Chat interface
-st.subheader("Conversation")
+# Main area - tabs for conversation and eval results
+tab1, tab2 = st.tabs(["💬 Conversation", "📊 Eval Results"])
 
-# Display messages
-for msg_idx, msg in enumerate(st.session_state.messages):
-    # Skip messages that only have "role" key
-    if len(msg) == 1 and "role" in msg:
-        continue
-    
-    if msg["role"] == "user":
-        with st.chat_message("user"):
-            if "content" in msg:
-                st.write(msg["content"])
-            # Show attachments if present
-            if "attachments" in msg and msg["attachments"]:
-                for att_path in msg["attachments"]:
-                    st.caption(f"📎 {os.path.basename(att_path)}")
-    else:
-        with st.chat_message("agent"):
-            if "content" in msg:
-                st.write(msg["content"])
-            
-            # Show structure visualization if present
-            if "structure_path" in msg and os.path.exists(msg["structure_path"]):
-                #st.divider()
-                #st.markdown("**Structure Visualization:**")
-                visualize_structure(msg["structure_path"])
-                # Add download button for structure
-                with open(msg["structure_path"], "rb") as f:
-                    st.download_button(
-                        label=f"⬇️ Download {os.path.basename(msg['structure_path'])}",
-                        data=f.read(),
-                        file_name=os.path.basename(msg["structure_path"]),
-                        key=f"download_struct_{msg_idx}_{os.path.basename(msg['structure_path'])}"
-                    )
-            # Show plot if present
-            if "plot_path" in msg and os.path.exists(msg["plot_path"]):
-                #st.divider()
-                #st.markdown("**Plot:**")
-                st.image(msg["plot_path"], use_container_width=True)
-                # Add download button for plot
-                with open(msg["plot_path"], "rb") as f:
-                    st.download_button(
-                        label=f"⬇️ Download {os.path.basename(msg['plot_path'])}",
-                        data=f.read(),
-                        file_name=os.path.basename(msg["plot_path"]),
-                        key=f"download_plot_{msg_idx}_{os.path.basename(msg['plot_path'])}"
-                    )
-            # Show model if present
-            if "model_path" in msg and os.path.exists(msg["model_path"]):
-                st.divider()
-                st.markdown("**Model File:**")
-                st.info(f"📦 {os.path.basename(msg['model_path'])}")
-                # Add download button for model
-                with open(msg["model_path"], "rb") as f:
-                    st.download_button(
-                        label=f"⬇️ Download {os.path.basename(msg['model_path'])}",
-                        data=f.read(),
-                        file_name=os.path.basename(msg["model_path"]),
-                        key=f"download_model_{msg_idx}_{os.path.basename(msg['model_path'])}"
-                    )
-            
+with tab1:
+    # Chat interface
+    st.subheader("Conversation")
 
-# Input for new messages
-if st.session_state.session_id:  # Only show input if session exists
-    # File upload in chat area
-    uploaded_files = st.file_uploader(
-        "📎 Attach files (optional)",
-        type=["extxyz", "xyz", "cif", "vasp", "txt"],
-        accept_multiple_files=True,
-        key=f"uploader_{st.session_state.uploader_key}"
-    )
-    
-    user_input = st.chat_input("Type your message...")
-    if user_input:
-        # Process attachments if present
-        attachments = []
-        if uploaded_files:
-            os.makedirs("/tmp/streamlit_uploads", exist_ok=True)
-            for uf in uploaded_files:
-                save_path = os.path.join("/tmp/streamlit_uploads", uf.name)
-                with open(save_path, "wb") as f:
-                    f.write(uf.getbuffer())
-                attachments.append(os.path.abspath(save_path))
+    # Display messages
+    for msg_idx, msg in enumerate(st.session_state.messages):
+        # Skip messages that only have "role" key
+        if len(msg) == 1 and "role" in msg:
+            continue
         
-        send_message_sse(user_input, attachments)
-        st.rerun()  # Rerun to update the UI with new messages
-else:
-    st.info("👈 Create a session to start chatting")
+        if msg["role"] == "user":
+            with st.chat_message("user"):
+                if "content" in msg:
+                    st.write(msg["content"])
+                # Show attachments if present
+                if "attachments" in msg and msg["attachments"]:
+                    for att_path in msg["attachments"]:
+                        st.caption(f"📎 {os.path.basename(att_path)}")
+        else:
+            with st.chat_message("agent"):
+                if "content" in msg:
+                    st.write(msg["content"])
+                
+                # Show structure visualization if present
+                if "structure_path" in msg and os.path.exists(msg["structure_path"]):
+                    #st.divider()
+                    #st.markdown("**Structure Visualization:**")
+                    visualize_structure(msg["structure_path"])
+                    # Add download button for structure
+                    with open(msg["structure_path"], "rb") as f:
+                        st.download_button(
+                            label=f"⬇️ Download {os.path.basename(msg['structure_path'])}",
+                            data=f.read(),
+                            file_name=os.path.basename(msg["structure_path"]),
+                            key=f"download_struct_{msg_idx}_{os.path.basename(msg['structure_path'])}"
+                        )
+                # Show plot if present
+                if "plot_path" in msg and os.path.exists(msg["plot_path"]):
+                    #st.divider()
+                    #st.markdown("**Plot:**")
+                    st.image(msg["plot_path"], 
+                             width='content',
+                             #use_container_width=True
+                             )
+                    # Add download button for plot
+                    with open(msg["plot_path"], "rb") as f:
+                        st.download_button(
+                            label=f"⬇️ Download {os.path.basename(msg['plot_path'])}",
+                            data=f.read(),
+                            file_name=os.path.basename(msg["plot_path"]),
+                            key=f"download_plot_{msg_idx}_{os.path.basename(msg['plot_path'])}"
+                        )
+                # Show model if present
+                if "model_path" in msg and os.path.exists(msg["model_path"]):
+                    st.divider()
+                    st.markdown("**Model File:**")
+                    st.info(f"📦 {os.path.basename(msg['model_path'])}")
+                    # Add download button for model
+                    with open(msg["model_path"], "rb") as f:
+                        st.download_button(
+                            label=f"⬇️ Download {os.path.basename(msg['model_path'])}",
+                            data=f.read(),
+                            file_name=os.path.basename(msg["model_path"]),
+                            key=f"download_model_{msg_idx}_{os.path.basename(msg['model_path'])}"
+                        )
+                
+
+    # Input for new messages
+    if st.session_state.session_id:  # Only show input if session exists
+        # File upload in chat area
+        uploaded_files = st.file_uploader(
+            "📎 Attach files (optional)",
+            type=["extxyz", "xyz", "cif", "vasp", "txt"],
+            accept_multiple_files=True,
+            key=f"uploader_{st.session_state.uploader_key}"
+        )
+        
+        user_input = st.chat_input("Type your message...")
+        if user_input:
+            # Process attachments if present
+            attachments = []
+            if uploaded_files:
+                os.makedirs("/tmp/streamlit_uploads", exist_ok=True)
+                for uf in uploaded_files:
+                    save_path = os.path.join("/tmp/streamlit_uploads", uf.name)
+                    with open(save_path, "wb") as f:
+                        f.write(uf.getbuffer())
+                    attachments.append(os.path.abspath(save_path))
+            
+            send_message_sse(user_input, attachments)
+            st.rerun()  # Rerun to update the UI with new messages
+    else:
+        st.info("👈 Create a session to start chatting")
+
+with tab2:
+    # Eval Results Display
+    st.subheader("Evaluation Results")
+    
+    # Refresh eval results
+    if st.button("🔄 Refresh Results"):
+        list_eval_results()
+        st.rerun()
+    
+    # Load results if not already loaded
+    if not st.session_state.eval_results:
+        list_eval_results()
+    
+    if st.session_state.eval_results:
+        st.write(f"**Total Results:** {len(st.session_state.eval_results)}")
+        
+        # Display each eval result
+        for idx, eval_result_id in enumerate(st.session_state.eval_results):
+            with st.expander(f"📊 {eval_result_id}", expanded=(idx == 0)):
+                result_data = get_eval_result(eval_result_id)
+                
+                if result_data:
+                    # Display metadata
+                    st.markdown(f"**Eval Result ID:** `{result_data.get('id', 'N/A')}`")
+                    st.markdown(f"**Eval Set ID:** `{result_data.get('eval_set_id', 'N/A')}`")
+                    
+                    # Display case results
+                    case_results = result_data.get('case_results', [])
+                    if case_results:
+                        st.markdown(f"**Case Results:** ({len(case_results)} cases)")
+                        
+                        for case_idx, case_result in enumerate(case_results):
+                            with st.container():
+                                st.markdown(f"**Case {case_idx + 1}:** `{case_result.get('eval_case_id', 'N/A')}`")
+                                
+                                # Display metrics
+                                metric_results = case_result.get('metric_results', [])
+                                if metric_results:
+                                    cols = st.columns(len(metric_results))
+                                    for col_idx, metric in enumerate(metric_results):
+                                        with cols[col_idx]:
+                                            metric_name = metric.get('metric_name', 'Unknown')
+                                            metric_score = metric.get('score', 'N/A')
+                                            st.metric(metric_name, f"{metric_score:.2f}" if isinstance(metric_score, (int, float)) else metric_score)
+                                
+                                st.divider()
+                    else:
+                        st.info("No case results available")
+                else:
+                    st.error("Failed to load eval result details")
+    else:
+        st.info("No evaluation results available. Run an evaluation to generate results.")
