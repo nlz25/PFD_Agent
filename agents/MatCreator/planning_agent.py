@@ -225,11 +225,17 @@ class PlanningAgent(LlmAgent):
                             classification_data.workflow_type,
                             classification_data.goal
                         )
-                        break
+                        # Successfully parsed - don't yield, we'll create formatted message below
+                    else:
+                        # Not JSON, yield the event
+                        yield event
                 except Exception as e:
                     logger.error(f"Failed to parse workflow classification: {e}")
-                continue
-            yield event
+                    # Parsing failed, yield the event as-is
+                    yield event
+            else:
+                # Always yield non-final events (thinking, tool calls, etc.)
+                yield event
         
         if not classification_data:
             logger.warning("Workflow classification failed, defaulting to 'default' type")
@@ -260,6 +266,7 @@ class PlanningAgent(LlmAgent):
         )
 
         event_action = EventActions(state_delta=state_update)
+        logger.info(f"Phase 1 complete: Classified workflow as '{classification_data.workflow_type}' with goal '{classification_data.goal}'")
         yield Event(
             content=Content(parts=[Part(text=confirmation_prompt)]),
             author=self.name,

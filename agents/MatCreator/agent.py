@@ -101,7 +101,7 @@ class MatCreatorFlowAgent(LlmAgent):
                     logger.info("Awaiting goal confirmation from user response...")
                     async for event in assessment_agent.run_async(ctx):
                         yield event
-                    continue
+                    continue  # Wait for next user input before proceeding to planning
                 else:
                     logger.info("Understanding user intent and proposing goal...")
                     async for event in planning_agent.run_async(ctx):
@@ -122,7 +122,6 @@ class MatCreatorFlowAgent(LlmAgent):
                 async for event in assessment_agent.run_async(ctx):
                     yield event
                 
-                # If still not confirmed (questions/unclear), wait for user
                 if not ctx.session.state.get('plan_confirmed', False):
                     logger.info("Plan not confirmed-reformulate")
                     continue
