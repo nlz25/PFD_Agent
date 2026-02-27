@@ -22,7 +22,7 @@ Model training is a dynamic, iterative process. Follow this decision flow and re
 ### Stage 3 — PFD Workflow (Last Resort)
 - If no available dataset or fine-tuned model is insufficient, launch the PFD workflow.
 - PFD iteratively generates new data via MD exploration, labels it, and retrains until convergence.
-- See `pfd` skill for full details.
+- See `pfd-finetuning` skill for full details.
 
 ## General Notes
 - Always evaluate the model after each step before proceeding to the next.
