@@ -170,11 +170,6 @@ def after_agent_callback(callback_context: CallbackContext):
     return None
 
 
-def return_weather():
-    '''Get weather temperature'''
-    return {"city": "Beijing", "temperature": "12 Celcius"}
-
-
 def build_execution_agent(plan: dict) -> ExecutionAgent:
     """Factory that instantiates an ExecutionAgent scoped to the agents named in *plan*.
 
