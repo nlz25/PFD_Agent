@@ -109,7 +109,10 @@ class MatCreatorFlowAgent(BaseAgent):
                 
             if ctx.session.state.get("recommended_next_action", "") == "replan" or ctx.session.state.get("recommended_next_action", "") == "mark_complete":
                 logger.info(f"[{self.name}]: Execution complete with recommended next action {ctx.session.state.get('recommended_next_action','')}, routing back to thinking agent.")
-                event_action = EventActions(state_delta={"phase":"thinking"})
+                event_action = EventActions(state_delta={
+                    "phase":"thinking",
+                    "approval": True,
+                    })
                 event = Event(
                     content=Content(parts=[Part(text=f"thinking...")]),
                     author=self.name,

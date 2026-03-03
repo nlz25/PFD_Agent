@@ -50,35 +50,126 @@ class QueryResult(TypedDict):
     ids: List[int]
     formulas: List[str]
 
-def _save_extxyz_to_db(extxyz_path: str, 
+# ---------------------------------------------------------------------------
+# Helpers for the normalized nodes/datasets/dataset_elements schema
+# ---------------------------------------------------------------------------
+
+def _ensure_schema(conn: sqlite3.Connection) -> None:
+    """Create new tables if they don't exist yet (idempotent)."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS nodes (
+            node_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            name         TEXT NOT NULL UNIQUE,
+            description  TEXT,
+            functional   TEXT,
+            code         TEXT,
+            cutoff_eV    REAL,
+            pseudopot    TEXT,
+            kspacing     REAL,
+            spin_pol     INTEGER DEFAULT 0,
+            vdw          TEXT,
+            extra_params TEXT,
+            created_at   TEXT
+        );
+        CREATE TABLE IF NOT EXISTS datasets (
+            dataset_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            node_id      INTEGER NOT NULL REFERENCES nodes(node_id),
+            elements     TEXT NOT NULL,
+            n_elements   INTEGER,
+            system_type  TEXT,
+            field        TEXT,
+            entries      INTEGER,
+            source       TEXT,
+            path         TEXT,
+            has_forces   INTEGER DEFAULT 0,
+            has_stress   INTEGER DEFAULT 0,
+            has_energy   INTEGER DEFAULT 0,
+            energy_min   REAL,
+            energy_max   REAL,
+            created_at   TEXT
+        );
+        CREATE TABLE IF NOT EXISTS dataset_elements (
+            dataset_id  INTEGER NOT NULL REFERENCES datasets(dataset_id),
+            element     TEXT NOT NULL,
+            PRIMARY KEY (dataset_id, element)
+        );
+        CREATE INDEX IF NOT EXISTS idx_de_element  ON dataset_elements(element);
+        CREATE INDEX IF NOT EXISTS idx_ds_elements ON datasets(elements);
+        CREATE INDEX IF NOT EXISTS idx_ds_node     ON datasets(node_id);
+    """)
+
+
+def _get_or_create_user_node(conn: sqlite3.Connection, now: str) -> int:
+    """Return node_id for the 'User Upload' node, creating it if needed."""
+    cur = conn.cursor()
+    cur.execute("SELECT node_id FROM nodes WHERE name = 'User Upload'")
+    row = cur.fetchone()
+    if row:
+        return row[0]
+    cur.execute(
+        "INSERT INTO nodes (name, description, created_at) VALUES (?, ?, ?)",
+        ("User Upload", "Frames uploaded by the user; DFT settings unknown.", now),
+    )
+    return cur.lastrowid
+
+
+def _save_extxyz_to_db(extxyz_path: str,
                       info_db_path: str,
                       ase_db_path: str,
                       db_path_info: str):
-    
+
     db = connect(ase_db_path)
     images = read(extxyz_path, format="extxyz", index=":")
 
-    elements_set = set()
+    elements_set: set[str] = set()
+    has_forces = has_stress = has_energy = False
+    energy_vals: list[float] = []
     for item in images:
         elements_set.update(item.get_chemical_symbols())
         db.write(item)
-    elements_list = sorted(list(elements_set))
-    now = datetime.now()
-    info_dict = {
-        "Date": f"{now.year}-{now.month}-{now.day}:{now.hour}-{now.min}-{now.second}",
-        "Elements": "-".join(elements_list),
-        "Type": "Bulk",
-        "Fields": "Unknown",
-        "Entries": len(images),
-        "Source": "User Calculation",
-        "Path": db_path_info
-    }
+        if item.calc is not None:
+            results = item.calc.results
+            if "forces" in results:
+                has_forces = True
+            if "stress" in results:
+                has_stress = True
+            if "energy" in results:
+                has_energy = True
+                energy_vals.append(results["energy"])
+
+    elements_list = sorted(elements_set)
+    elements_str = "-".join(elements_list)
+    now = datetime.now().isoformat()
+
     with sqlite3.connect(info_db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO dataset_info (Date, Elements, Type, Fields, Entries, Source, Path) VALUES (:Date, :Elements, :Type, :Fields, :Entries, :Source, :Path)",
-            info_dict
+        _ensure_schema(conn)
+        node_id = _get_or_create_user_node(conn, now)
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO datasets
+                (node_id, elements, n_elements, system_type, field,
+                 entries, source, path,
+                 has_forces, has_stress, has_energy,
+                 energy_min, energy_max, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                node_id, elements_str, len(elements_list),
+                "Bulk", "User Upload",
+                len(images), "User Calculation", db_path_info,
+                int(has_forces), int(has_stress), int(has_energy),
+                min(energy_vals) if energy_vals else None,
+                max(energy_vals) if energy_vals else None,
+                now,
+            ),
         )
+        dataset_id = cur.lastrowid
+        for element in elements_list:
+            cur.execute(
+                "INSERT OR IGNORE INTO dataset_elements (dataset_id, element) VALUES (?, ?)",
+                (dataset_id, element),
+            )
         conn.commit()
 
 
@@ -130,10 +221,13 @@ def _query_information_database(sql_code:str, db_path:str)->List[Dict[str, Any]]
         records = cursor.fetchall() 
         results  = []
         for record in records:
-            item = {key:record[key] for key in record.keys()}
-            item["Path"] = str(parent_path / item["Path"])
+            item = {key: record[key] for key in record.keys()}
+            # resolve relative path -> absolute; handle both 'path' and 'Path'
+            path_key = next((k for k in item if k.lower() == "path"), None)
+            if path_key and item[path_key]:
+                item[path_key] = str(parent_path / item[path_key])
             results.append(item)
-        
+
         return results
 
 
@@ -513,36 +607,26 @@ def validate_sql_code_query(sql_code: str) -> Dict[str, Any]:
          
 @mcp.tool()
 def query_information_database(sql_code: str) -> Dict[str, Any]:
-    """Execute a SELECT statement on the information database and summarize the datasets.
+    """Execute a SELECT statement on the information database.
+
+    The SQL agent generates the query targeting the nodes/datasets/dataset_elements schema.
+    All columns selected are returned; 'path' values are resolved to absolute paths.
 
     Args:
-        sql_code (str): Validated single SELECT statement targeting ``dataset_info``.
+        sql_code (str): Validated single SELECT statement.
 
     Returns:
         Dict[str, Any]:
-            - ``query`` (str): Normalized SQL string that was executed.
-            - ``count`` (int): Number of datasets returned by the query.
-            - ``datasets`` (List[Dict[str, Any]]): Minimal per-dataset metadata with keys
-              ``ID``, ``Elements``, ``Type``, ``Fields``, ``Entries``, and absolute ``Path``.
+            - ``query`` (str): The SQL string that was executed.
+            - ``count`` (int): Number of rows returned.
+            - ``datasets`` (List[Dict]): One dict per row; columns depend on the SELECT.
+              Always includes ``path`` resolved to absolute when present.
     """
-    
     query_result = _query_information_database(sql_code, info_db_path)
-    
-    dataset_summaries: List = [
-        {
-            "ID": row["ID"],
-            "Elements": row["Elements"],
-            "Type": row["Type"],
-            "Fields": row["Fields"],
-            "Entries": row["Entries"],
-            "Path": row["Path"],
-        }
-        for row in query_result#["results"]
-    ]
     return {
         "query": sql_code.strip(),
-        "count": len(dataset_summaries),
-        "datasets": dataset_summaries,
+        "count": len(query_result),
+        "datasets": query_result,
     }
     
 @mcp.tool()

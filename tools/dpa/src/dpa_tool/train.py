@@ -24,6 +24,8 @@ from deepmd.calculator import DP
 
 from .utils import run_command, dflow_remote_execution
 
+logger=logging.getLogger(__name__)
+
 ALL_TYPES = [
             "H","He","Li","Be","B","C","N","O","F","Ne","Na","Mg","Al","Si","P","S","Cl","Ar","K","Ca","Sc","Ti","V",
             "Cr","Mn","Fe","Co","Ni","Cu","Zn","Ga","Ge","As","Se","Br","Kr","Rb","Sr","Y","Zr","Nb","Mo","Tc","Ru","Rh","Pd","Ag","Cd","In","Sn","Sb","Te",
@@ -402,7 +404,7 @@ def dp_training(
             "message": "DP training completed successfully"
         }
     except Exception as e:
-        logging.error(f"Error in dpa_training: {str(e)}")
+        logger.error(f"Error in dpa_training: {str(e)}")
         return {
             "status": "error",
             "model": workdir / "model.ckpt.pt",
@@ -1059,7 +1061,7 @@ def _evaluate_trained_model(
                 "rmse_f": _rmse(pred_f_arr, lab_f_arr) if lab_f_arr.size else float('nan'),
                 "n_frames": float(len(atoms_ls)),
         }
-            logging.info(f"Test completed on {len(atoms_ls)} frames. Metrics: {metrics}")
+            logger.info(f"Test completed on {len(atoms_ls)} frames. Metrics: {metrics}")
             results[f"{idx:02d}"] = metrics
 
         # Collect all file paths
@@ -1076,7 +1078,7 @@ def _evaluate_trained_model(
             "message": f"Model evaluation completed on {len(test_data)} dataset(s)"
             }
     except Exception as e:
-        logging.error(f"Error in model evaluation: {str(e)}")
+        logger.error(f"Error in model evaluation: {str(e)}")
         return {
             "status": "error",
             "energy_files": [],
