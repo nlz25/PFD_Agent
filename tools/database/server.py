@@ -44,41 +44,132 @@ class AtomsInfoResult(TypedDict):
     query_atoms_path: Union[Path, str]
     
 class QueryResult(TypedDict):
-    """Result structure for model training"""
+    """Result structure for query_compounds - brief summary only"""
     query: str
     count: int
-    ids: List[int]
-    formulas: List[str]
+    unique_formulas: List[str]
+    sample_ids: List[int]  # First few ids as examples
 
-def _save_extxyz_to_db(extxyz_path: str, 
+# ---------------------------------------------------------------------------
+# Helpers for the normalized nodes/datasets/dataset_elements schema
+# ---------------------------------------------------------------------------
+
+def _ensure_schema(conn: sqlite3.Connection) -> None:
+    """Create new tables if they don't exist yet (idempotent)."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS nodes (
+            node_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            name         TEXT NOT NULL UNIQUE,
+            description  TEXT,
+            functional   TEXT,
+            code         TEXT,
+            cutoff_eV    REAL,
+            pseudopot    TEXT,
+            kspacing     REAL,
+            spin_pol     INTEGER DEFAULT 0,
+            vdw          TEXT,
+            extra_params TEXT,
+            created_at   TEXT
+        );
+        CREATE TABLE IF NOT EXISTS datasets (
+            dataset_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            node_id      INTEGER NOT NULL REFERENCES nodes(node_id),
+            elements     TEXT NOT NULL,
+            n_elements   INTEGER,
+            system_type  TEXT,
+            field        TEXT,
+            entries      INTEGER,
+            source       TEXT,
+            path         TEXT,
+            has_forces   INTEGER DEFAULT 0,
+            has_stress   INTEGER DEFAULT 0,
+            has_energy   INTEGER DEFAULT 0,
+            energy_min   REAL,
+            energy_max   REAL,
+            created_at   TEXT
+        );
+        CREATE TABLE IF NOT EXISTS dataset_elements (
+            dataset_id  INTEGER NOT NULL REFERENCES datasets(dataset_id),
+            element     TEXT NOT NULL,
+            PRIMARY KEY (dataset_id, element)
+        );
+        CREATE INDEX IF NOT EXISTS idx_de_element  ON dataset_elements(element);
+        CREATE INDEX IF NOT EXISTS idx_ds_elements ON datasets(elements);
+        CREATE INDEX IF NOT EXISTS idx_ds_node     ON datasets(node_id);
+    """)
+
+
+def _get_or_create_user_node(conn: sqlite3.Connection, now: str) -> int:
+    """Return node_id for the 'User Upload' node, creating it if needed."""
+    cur = conn.cursor()
+    cur.execute("SELECT node_id FROM nodes WHERE name = 'User Upload'")
+    row = cur.fetchone()
+    if row:
+        return row[0]
+    cur.execute(
+        "INSERT INTO nodes (name, description, created_at) VALUES (?, ?, ?)",
+        ("User Upload", "Frames uploaded by the user; DFT settings unknown.", now),
+    )
+    return cur.lastrowid
+
+
+def _save_extxyz_to_db(extxyz_path: str,
                       info_db_path: str,
                       ase_db_path: str,
                       db_path_info: str):
-    
+
     db = connect(ase_db_path)
     images = read(extxyz_path, format="extxyz", index=":")
 
-    elements_set = set()
+    elements_set: set[str] = set()
+    has_forces = has_stress = has_energy = False
+    energy_vals: list[float] = []
     for item in images:
         elements_set.update(item.get_chemical_symbols())
         db.write(item)
-    elements_list = sorted(list(elements_set))
-    now = datetime.now()
-    info_dict = {
-        "Date": f"{now.year}-{now.month}-{now.day}:{now.hour}-{now.min}-{now.second}",
-        "Elements": "-".join(elements_list),
-        "Type": "Bulk",
-        "Fields": "Unknown",
-        "Entries": len(images),
-        "Source": "User Calculation",
-        "Path": db_path_info
-    }
+        if item.calc is not None:
+            results = item.calc.results
+            if "forces" in results:
+                has_forces = True
+            if "stress" in results:
+                has_stress = True
+            if "energy" in results:
+                has_energy = True
+                energy_vals.append(results["energy"])
+
+    elements_list = sorted(elements_set)
+    elements_str = "-".join(elements_list)
+    now = datetime.now().isoformat()
+
     with sqlite3.connect(info_db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO dataset_info (Date, Elements, Type, Fields, Entries, Source, Path) VALUES (:Date, :Elements, :Type, :Fields, :Entries, :Source, :Path)",
-            info_dict
+        _ensure_schema(conn)
+        node_id = _get_or_create_user_node(conn, now)
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO datasets
+                (node_id, elements, n_elements, system_type, field,
+                 entries, source, path,
+                 has_forces, has_stress, has_energy,
+                 energy_min, energy_max, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                node_id, elements_str, len(elements_list),
+                "Bulk", "User Upload",
+                len(images), "User Calculation", db_path_info,
+                int(has_forces), int(has_stress), int(has_energy),
+                min(energy_vals) if energy_vals else None,
+                max(energy_vals) if energy_vals else None,
+                now,
+            ),
         )
+        dataset_id = cur.lastrowid
+        for element in elements_list:
+            cur.execute(
+                "INSERT OR IGNORE INTO dataset_elements (dataset_id, element) VALUES (?, ?)",
+                (dataset_id, element),
+            )
         conn.commit()
 
 
@@ -130,10 +221,13 @@ def _query_information_database(sql_code:str, db_path:str)->List[Dict[str, Any]]
         records = cursor.fetchall() 
         results  = []
         for record in records:
-            item = {key:record[key] for key in record.keys()}
-            item["Path"] = str(parent_path / item["Path"])
+            item = {key: record[key] for key in record.keys()}
+            # resolve relative path -> absolute; handle both 'path' and 'Path'
+            path_key = next((k for k in item if k.lower() == "path"), None)
+            if path_key and item[path_key]:
+                item[path_key] = str(parent_path / item[path_key])
             results.append(item)
-        
+
         return results
 
 
@@ -276,24 +370,32 @@ def _query_compounds(
     """
     path = db_path
     logging.info(f"Querying ASE database at {path} with selection: {selection}")
-    results: List[Dict[str, Any]] = []
-    seen_ids: set[int] = set()
+    seen_ids: List[int] = []
     formulas: set[str] = set()
     try:
         with connect(path) as db:
-            for row in db.select(selection,#filter=filter,
-                                 limit=limit,**custom_args):
-                if row.id in seen_ids:
-                    continue
-                seen_ids.add(row.id)
-                formulas.add(row.get("formula"))
-            return  QueryResult(
-                query=selection,count=len(results),ids=seen_ids,formulas=formulas
+            for row in db.select(selection, limit=limit, **custom_args):
+                seen_ids.append(row.id)
+                formula = row.get("formula")
+                if formula:
+                    formulas.add(formula)
+            
+            # Return brief summary: count, unique formulas, and first few ids as samples
+            sample_ids = seen_ids[:10]  # Only return first 10 ids as examples
+            
+            return QueryResult(
+                query=str(selection),
+                count=len(seen_ids),
+                unique_formulas=sorted(formulas),
+                sample_ids=sample_ids
             )
     except Exception as e:
         logging.error("Error querying database: %s", e)
         return QueryResult(
-            query=selection,count=0,ids=[],formulas=[]
+            query=str(selection),
+            count=0,
+            unique_formulas=[],
+            sample_ids=[]
         )
 
 
@@ -307,9 +409,12 @@ def _export_entries(
     ids: Optional[List[int]] = None,
     db_path: str = "",
     fmt: Literal["extxyz", "cif", "traj"] = "extxyz",
-    mode: Literal["ids", "all", "random"] = "ids",
+    mode: Literal["ids", "all", "random", "selection"] = "ids",
     sample_size: Optional[int] = None,
     random_seed: Optional[int] = None,
+    selection: Optional[Union[dict, int, str, List[Union[str, Tuple]]]] = None,
+    limit: Optional[int] = None,
+    custom_args: Dict[str, Any] = {},
 ) -> Dict[str, Any]:
     """Export ASE database entries with flexible selection strategies.
 
@@ -317,20 +422,26 @@ def _export_entries(
         ids: Explicit entry ids (required when ``mode='ids'``).
         db_path: Absolute path to the ASE database file.
         fmt: Output structure format.
-        mode: Selection strategy: ``'ids'`` (default), ``'all'`` datasets, or ``'random'`` sample.
+        mode: Selection strategy: ``'ids'``, ``'all'``, ``'random'``, or ``'selection'``.
         sample_size: Number of entries to sample when ``mode='random'``.
         random_seed: Optional seed to make random sampling reproducible.
+        selection: Selection criteria (required when ``mode='selection'``). 
+            Same format as query_compounds: int, str, list[str], list[tuple], or dict.
+        limit: Maximum number of entries to export when ``mode='selection'``.
+        custom_args: Additional arguments forwarded to ASE db.select() when ``mode='selection'``.
 
     Returns:
         ExportResult with paths to the structure bundle, metadata JSON, and aggregate counts.
     """
 
-    if mode not in {"ids", "all", "random"}:
-        raise ValueError("mode must be one of: 'ids', 'all', 'random'")
+    if mode not in {"ids", "all", "random", "selection"}:
+        raise ValueError("mode must be one of: 'ids', 'all', 'random', 'selection'")
     if mode == "ids" and not ids:
         raise ValueError("Provide at least one id when mode='ids'")
     if mode == "random" and (sample_size is None or sample_size <= 0):
         raise ValueError("sample_size must be a positive integer when mode='random'")
+    if mode == "selection" and selection is None:
+        raise ValueError("Provide selection criteria when mode='selection'")
 
     path = db_path
     work_path = Path(generate_work_path())
@@ -359,10 +470,12 @@ def _export_entries(
                         sample_n = min(sample_size or 0, len(available_ids))
                         rng = random.Random(random_seed)
                         target_ids = rng.sample(available_ids, sample_n)
-                # mode == "all" keeps target_ids as None to stream rows directly
+                # mode == "all" or "selection" stream rows directly
 
                 if mode == "all":
                     row_iter = db.select()
+                elif mode == "selection":
+                    row_iter = db.select(selection, limit=limit, **custom_args)
                 else:
                     row_iter = (
                         db.get(id=entry_id)
@@ -513,36 +626,26 @@ def validate_sql_code_query(sql_code: str) -> Dict[str, Any]:
          
 @mcp.tool()
 def query_information_database(sql_code: str) -> Dict[str, Any]:
-    """Execute a SELECT statement on the information database and summarize the datasets.
+    """Execute a SELECT statement on the information database.
+
+    The SQL agent generates the query targeting the nodes/datasets/dataset_elements schema.
+    All columns selected are returned; 'path' values are resolved to absolute paths.
 
     Args:
-        sql_code (str): Validated single SELECT statement targeting ``dataset_info``.
+        sql_code (str): Validated single SELECT statement.
 
     Returns:
         Dict[str, Any]:
-            - ``query`` (str): Normalized SQL string that was executed.
-            - ``count`` (int): Number of datasets returned by the query.
-            - ``datasets`` (List[Dict[str, Any]]): Minimal per-dataset metadata with keys
-              ``ID``, ``Elements``, ``Type``, ``Fields``, ``Entries``, and absolute ``Path``.
+            - ``query`` (str): The SQL string that was executed.
+            - ``count`` (int): Number of rows returned.
+            - ``datasets`` (List[Dict]): One dict per row; columns depend on the SELECT.
+              Always includes ``path`` resolved to absolute when present.
     """
-    
     query_result = _query_information_database(sql_code, info_db_path)
-    
-    dataset_summaries: List = [
-        {
-            "ID": row["ID"],
-            "Elements": row["Elements"],
-            "Type": row["Type"],
-            "Fields": row["Fields"],
-            "Entries": row["Entries"],
-            "Path": row["Path"],
-        }
-        for row in query_result#["results"]
-    ]
     return {
         "query": sql_code.strip(),
-        "count": len(dataset_summaries),
-        "datasets": dataset_summaries,
+        "count": len(query_result),
+        "datasets": query_result,
     }
     
 @mcp.tool()
@@ -622,11 +725,9 @@ def query_compounds(
     Returns:
         QueryResult:
             - query (str): Echo of the selection input (stringified).
-            - count (int): Number of unique rows returned.
-            - ids (List[int]): Unique row ids.
-            - formulas (List[str]): Unique empirical formulas (if available).
-            - results (List[Dict[str, Any]]): One dict per row with keys:
-                { 'id', 'name', 'formula', 'tags', 'key_value_pairs' }.
+            - count (int): Total number of entries matching the selection.
+            - unique_formulas (List[str]): Unique empirical formulas found.
+            - sample_ids (List[int]): First few entry ids as examples (max 10).
 
     Examples (selection):
         # 1) Single id
@@ -669,22 +770,34 @@ def export_entries(
     ids: Optional[List[int]] = None,
     db_path: str = "",
     fmt: Literal["extxyz", "cif", "traj"] = "extxyz",
-    mode: Literal["ids", "all", "random"] = "ids",
+    mode: Literal["ids", "all", "random", "selection"] = "ids",
     sample_size: Optional[int] = None,
     random_seed: Optional[int] = None,
+    selection: Optional[Union[dict, int, str, List[Union[str, Tuple]]]] = None,
+    limit: Optional[int] = None,
+    custom_args: Dict[str, Any] = {},
     ) -> Dict[str, Any]:
-    """Export ASE entries by ids, the entire dataset, or a random sample.
+    """Export ASE entries by ids, selection criteria, entire dataset, or random sample.
 
     Args:
         ids (List[int] | None): Specific row identifiers when ``mode='ids'``.
         db_path (str): Absolute path to the ASE database file.
         fmt (Literal["extxyz", "cif", "traj"]): Output structure format.
-        mode (Literal["ids", "all", "random"]): Selection strategy.
+        mode (Literal["ids", "all", "random", "selection"]): Selection strategy.
         sample_size (int | None): Number of entries to sample when ``mode='random'``.
         random_seed (int | None): Optional seed for deterministic sampling.
+        selection: Selection criteria when ``mode='selection'``. Same format as query_compounds:
+            int, str, list[str], list[tuple], or dict.
+        limit (int | None): Maximum entries to export when ``mode='selection'``.
+        custom_args (Dict[str, Any]): Additional arguments for ASE db.select() when ``mode='selection'``.
 
     Returns:
         Dict[str, Any]: Paths to the exported structure file and metadata JSON plus summary counts.
+        
+    Examples:
+        # Export by selection (similar to query_compounds)
+        >>> export_entries(db_path="path/to/db.db", mode="selection", selection="Si,energy<-1.0")
+        >>> export_entries(db_path="path/to/db.db", mode="selection", selection="formula=Si32", limit=100)
     """
     return _export_entries(
         ids=ids,
@@ -693,6 +806,9 @@ def export_entries(
         mode=mode,
         sample_size=sample_size,
         random_seed=random_seed,
+        selection=selection,
+        limit=limit,
+        custom_args=custom_args,
     )
 
 if __name__ == "__main__":

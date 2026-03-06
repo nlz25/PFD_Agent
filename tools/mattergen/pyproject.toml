@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mattergen-server"
+version = "0.1.0"
+description = "mattergen model training and crystal structure generation"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ase==3.26.0",
+    "bohr-agent-sdk>=0.1.101",
+    "numpy==2.2.0",
+    "pydflow>=1.8.132",
+    "python-dotenv",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

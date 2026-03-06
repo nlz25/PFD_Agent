@@ -1,15 +1,17 @@
-from google.adk.agents import LlmAgent, InvocationContext
-from google.adk.models.lite_llm import LiteLlm
+from google.adk.agents import InvocationContext, BaseAgent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
+from google.adk.apps import App, ResumabilityConfig
+from google.adk.apps.app import EventsCompactionConfig
 from google.adk.events import Event, EventActions
-from google.genai.types import Content, Part
-
+from google.genai.types import Content,Part
+from pydantic import PrivateAttr
 import os
 import logging
-from .planning_agent import planning_agent
-from .assessment_agent import assessment_agent
-from .execution_agent import execution_agent
+from typing import Optional, Any
+from .thinking_agent import thinking_agent
+from .execution_agent import build_execution_agent
+from .summarize_agent import summarize_agent
 from .constants import LLM_MODEL, LLM_API_KEY, LLM_BASE_URL
 from .callbacks import (
     set_session_metadata,
@@ -27,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 description="""
 You are the MatCreator Agent. You orchestrate computational materials science workflows through 
-a structured plan-confirm-execute cycle, ensuring user visibility and approval before expensive operations.
+a structured thinking-execution cycle, ensuring user visibility and approval before expensive operations.
 """ 
 
 global_instruction = """
@@ -37,118 +39,120 @@ General rules for all agents:
 - When encountering errors, quote the exact error message and propose concrete solutions.
 """
 
-# Root agent coordinates the plan-confirm-execute workflow
+# Root agent coordinates the phase-based thinking-execution workflow
 root_instruction = """
 You are the MatCreator orchestration agent. You coordinate computational materials science workflows 
-through a structured plan-confirm-execute cycle.
+through a phase-based thinking-execution cycle.
 
 **Your role:**
-You DO NOT execute tasks directly. You manage the workflow by delegating to specialized agents:
+You DO NOT execute tasks directly. You route work using the session phase:
 
-1. **planning_agent**: Creates structured execution plans based on user requests
-2. **assessment_agent**: Evaluates user responses (plan approval, task completion, replanning needs)
-3. **execution_agent**: Executes approved plans by coordinating domain-specific agents
+1. **phase=thinking** → delegate to **thinking_agent**
+2. **phase=execution** → delegate to **execution_agent**
 
 **Your job:**
-- Transfer to the appropriate agent based on current workflow state
-- Let planning_agent handle all plan creation
-- Let assessment_agent handle all user response evaluation
-- Let execution_agent handle all task execution
-- Provide brief status updates between phases
+- Transfer to the appropriate agent based on phase only
+- Let thinking_agent handle intent clarification, plan drafting, and plan approval handling
+- Let execution_agent handle all approved task execution
 
 **Critical rules:**
 1. NEVER execute tasks yourself - always delegate to the appropriate agent
-2. Trust the workflow state flags (plan_confirmed, execution_started, goal_achieved)
+2. Trust the phase state variable (thinking/execution)
 3. Keep your messages minimal - let the specialized agents communicate with users
-4. Only intervene if there's a workflow error or max iterations exceeded
+4. If phase is invalid or missing, normalize to thinking
 """
 
+class MatCreatorFlowAgent(BaseAgent):
+    """Root agent with enforced phase-based routing."""
 
-class MatCreatorFlowAgent(LlmAgent):
-    """Root agent with enforced plan-confirm-execute workflow."""
+    _execution_agent: Optional[Any] = PrivateAttr(default=None)
+
+    @property
+    def execution_agent(self) -> Optional[Any]:
+        """The current execution agent instance, built from the active plan."""
+        return self._execution_agent
+
+    @execution_agent.setter
+    def execution_agent(self, agent: BaseAgent) -> None:
+        self._execution_agent = agent
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    async def _run_async_impl_cycle(self, ctx: InvocationContext):
+        """Route to the correct workflow phase, persisting step in session.state."""
+        state = ctx.session.state
+        if ctx.session.state["phase"]=="thinking":
+            logger.info(f"[{self.name}]: Starting thinking")
+            async for event in thinking_agent.run_async(ctx):
+                yield event
+
+            if not state.get("approval", False):
+                return
+            event_action = EventActions(state_delta={"phase":"execution"})
+            event = Event(
+                content=Content(parts=[Part(text=f"🚀 Starting execution")]),
+                author=self.name,
+                actions=event_action
+        )
+            yield event
+            
+            
+            
+        if ctx.session.state["phase"]=="execution":
+            logger.info(f"[{self.name}]: Starting execution loop")
+            if self.execution_agent == None:
+                logger.info(f"[{self.name}]: Building execution agent from approved plan")
+                self.execution_agent = build_execution_agent(ctx.session.state.get("plan", {}))
+                
+            while True:
+                async for event in self._run_async_execution(ctx):
+                    yield event
+                if ctx.session.state.get("execution_complete", False):
+                    break    
+                
+            if ctx.session.state.get("recommended_next_action", "") == "replan" or ctx.session.state.get("recommended_next_action", "") == "mark_complete":
+                logger.info(f"[{self.name}]: Execution complete with recommended next action {ctx.session.state.get('recommended_next_action','')}, routing back to thinking agent.")
+                event_action = EventActions(state_delta={
+                    "phase":"thinking",
+                    "approval": True,
+                    })
+                event = Event(
+                    content=Content(parts=[Part(text=f"thinking...")]),
+                    author=self.name,
+                    actions=event_action
+                    )
+                yield event
+                
+            elif ctx.session.state.get("recommended_next_action", "") == "request_user_input":
+                logger.info(f"[{self.name}]: Execution agent recommends requesting user input, remain in execution phase")
+                event_action = EventActions(state_delta={"approval":False})
+                event = Event(
+                    content=Content(parts=[Part(text=f"Waiting for user input...")]),
+                    author=self.name,
+                    actions=event_action
+                    )
+                yield event
+        return
+            
+    async def _run_async_execution(self, ctx: InvocationContext):
+        """Override to prevent automatic phase changes after each tool call."""
+        async for event in self.execution_agent.run_async(ctx):
+                yield event
+                
+        logger.info(f"[{self.name}]: Summarizing result")
+        async for event in summarize_agent.run_async(ctx):
+                yield event
     
     async def _run_async_impl(self, ctx: InvocationContext):
-        """State-driven workflow: plan → confirm → execute (iterative with safety limit)."""
-        
-        max_iterations = 5  # Prevent infinite re-planning loops
-        iteration = 0
-        
-        while iteration < max_iterations:
-            iteration += 1
-            logger.info(f"Iteration {iteration}/{max_iterations}, state: {ctx.session.state}")
+        '''Main loop to continuously route between phases until session ends.'''
+        while True:
+            async for event in self._run_async_impl_cycle(ctx):
+                yield event
+            if not ctx.session.state.get("approval",False):
+                break   
+        return     
             
-            # Step 0: Run assessment if execution was started (handles interruptions/completion)
-            if ctx.session.state.get('execution_started', False):
-                logger.info("Execution was started, running assessment...")
-                async for event in assessment_agent.run_async(ctx):
-                    yield event
-                
-                # Check assessment results
-                if ctx.session.state.get('goal_achieved', False):
-                    logger.info("Goal achieved, workflow complete")
-                    return
-                
-                if ctx.session.state.get('needs_replanning', False):
-                    logger.info("Replanning needed due to changed requirements")
-                    # Clear execution flags and continue to planning
-                    continue
-                
-                # If continue_execution: execution_started is still True, proceed to Step 3
-
-            # Ensure goal is confirmed before planning
-            if not ctx.session.state.get('goal_confirmed', False):
-                if ctx.session.state.get('pending_goal_confirmation', False):
-                    logger.info("Awaiting goal confirmation from user response...")
-                    async for event in assessment_agent.run_async(ctx):
-                        yield event
-                    continue
-                else:
-                    logger.info("Understanding user intent and proposing goal...")
-                    async for event in planning_agent.run_async(ctx):
-                        yield event
-                    return  # Wait for user to confirm goal
-                
-            
-            # Step 1: Create plan if needed
-            if not ctx.session.state.get('plan_confirmed',False) and not ctx.session.state.get('pending_confirmation',False):
-                logger.info("Creating plan...")
-                async for event in planning_agent.run_async(ctx):
-                    yield event
-                return  # Wait for user response
-            
-            # Step 2: Get confirmation if plan not yet approved
-            if not ctx.session.state.get('plan_confirmed', False):
-                logger.info("Awaiting plan confirmation...")
-                async for event in assessment_agent.run_async(ctx):
-                    yield event
-                
-                # If still not confirmed (questions/unclear), wait for user
-                if not ctx.session.state.get('plan_confirmed', False):
-                    logger.info("Plan not confirmed-reformulate")
-                    continue
-            
-            # Step 3: Execute approved plan
-            if ctx.session.state.get('plan_confirmed', False):
-                logger.info("Executing approved plan via execution_agent")
-                
-                # Delegate to execution agent - completes in single invocation
-                async for event in execution_agent.run_async(ctx):
-                    yield event
-                    
-                logger.info("Plan execution completed, will assess on next user input")
-                yield Event(
-                    content=Content(parts=[Part(text="Execution complete. Please review results and provide feedback.")]),
-                    author=self.name,
-                )
-                return  # Execution complete, wait for user input to trigger assessment
-        
-        # Safety: exceeded max iterations
-        logger.warning(f"Exceeded max iterations ({max_iterations}) - stopping")
-        yield Event(
-            content=Content(parts=[Part(text=f"⚠️ Reached maximum re-planning attempts ({max_iterations}). Please start a new conversation if you need further assistance.")]),
-            author=self.name
-        )
-
 
 def before_agent_callback_root(callback_context: CallbackContext):
     """Set environment variables and initialize session state for MatCreator agent."""
@@ -163,31 +167,45 @@ def before_agent_callback_root(callback_context: CallbackContext):
     
     # Initialize session state variables if not present
     state = callback_context._invocation_context.session.state
+    if 'phase' not in state:
+        callback_context.state['phase']='thinking'
+
+    # Legacy state defaults kept temporarily for migration compatibility
     if 'plan' not in state:
-        state['plan'] = None
-    if 'goal' not in state:
-        state['goal'] = None
-    if 'goal_confirmed' not in state:
-        state['goal_confirmed'] = False
-    if 'pending_goal_confirmation' not in state:
-        state['pending_goal_confirmation'] = False
-    if 'plan_confirmed' not in state:
-        state['plan_confirmed'] = False
+        callback_context.state['plan'] = None
         
-    if 'pending_confirmation' not in state:
-        state['pending_confirmation'] = False
+    if 'detailed_steps' not in state:
+        callback_context.state['detailed_steps'] = None
+        
+    if 'goal' not in state:
+        callback_context.state['goal'] = None
+    
+    if 'approval' not in state:
+        callback_context.state['approval'] = False
+        
+    if 'summarize' not in state:
+        callback_context.state['summarize'] = None
+        
+    if 'skills' not in state:
+        callback_context.state['skills'] = None
     
     if 'execution_started' not in state:
-        state['execution_started'] = False
+        callback_context.state['execution_started'] = False
     
     if 'execution_complete' not in state:
-        state['execution_complete'] = False
+        callback_context.state['execution_complete'] = False
+
+    if 'execution_history' not in state:
+        callback_context.state['execution_history'] = []
+
+    if 'execution_last_output' not in state:
+        callback_context.state['execution_last_output'] = ""
     
     if 'goal_achieved' not in state:
-        state['goal_achieved'] = False
+        callback_context.state['goal_achieved'] = False
     
     if 'needs_replanning' not in state:
-        state['needs_replanning'] = False
+        callback_context.state['needs_replanning'] = False
     
     # Initialize session metadata in database if not already exists
     try:
@@ -218,21 +236,24 @@ structure_builder_agent = RemoteA2aAgent(
 )
 
 
-root_agent = MatCreatorFlowAgent(
+_root_agent = MatCreatorFlowAgent(
     name='MatCreator_agent',
-    model=LiteLlm(
-        model=model_name,
-        base_url=model_base_url,
-        api_key=model_api_key
-    ),
-    description=description,
-    instruction=root_instruction, 
-    global_instruction=global_instruction,
     before_agent_callback=before_agent_callback_root,
-    tools=[set_session_metadata, get_session_context, get_session_metadata],
     sub_agents=[
-        planning_agent,
-        assessment_agent,
-        execution_agent,
+        thinking_agent
     ]
     )
+
+app = App(
+    name="MatCreator",
+    root_agent=_root_agent,
+    resumability_config=ResumabilityConfig(
+        is_resumable=True,
+    ),
+    events_compaction_config=EventsCompactionConfig(
+        compaction_interval=3,  # Trigger compaction every 3 new invocations.
+        overlap_size=1          # Include last invocation from the previous window.
+    ),
+    # Optionally include App-level features:
+    # plugins, context_cache_config, resumability_config
+)

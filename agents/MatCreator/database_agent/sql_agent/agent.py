@@ -9,25 +9,71 @@ from pydantic import BaseModel, Field
 
 from ...constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 
-# deprecated
-_DB_GUIDE = """
-You can only query the `dataset_info` table. Each row corresponds to a dataset in the ASE database and
-exposes the following columns (all strings unless noted):
-- ID (INTEGER): unique identifier for the dataset.
-- Elements (TEXT): hyphen-joined, lexicographically sorted symbols (e.g., "Al-Fe-Si").
-- Type (TEXT): dataset system type (Cluster, Bulk, Surface, Interface, etc.).
-- Fields (TEXT): research domain (Alloy, Catalysis, Semiconductor, ...).
-- Entries (INTEGER): number of structures in the dataset.
-- Source (TEXT): URL or DOI for provenance.
-- Path (TEXT): relative path under ./ai-database pointing to the *.db file.
+_SCHEMA_GUIDE = """
+The info database has a single table: nodes.
+Each row represents one domain dataset node.
 
-Rules:
-1. Only search the data by the `Elements` column if the user does not provide other information except the chemical elements or formulas. 
-2. Always try to match elements EXACTLY and return all the information of an entry, e.g. `SELECT * FROM dataset_info WHERE Elements = 'Al-Fe-Si'`. Try not to use the keyword 'LIKE' for queries unless the result of the last query was 0.
-3. The response should be pure SQL code. 
-4. Never write UPDATE/INSERT/DELETE/ALTER/PRAGMA or attach other tables.
-5. Use LIMIT only if a numeric cap is given (assume 20 if the user says "a few" or "top" without a number).
-6. Multi-condition filters should put AND/OR explicitly and parenthesize OR groups.
+TABLE: nodes
+  node_id     INTEGER PK   -- unique node identifier
+  name        TEXT         -- domain label (e.g. "Domain_Cluster", "Domain_SemiCond")
+  description TEXT         -- human-readable description of the dataset contents
+  system_type TEXT         -- Bulk | Cluster | Surface | Interface ...
+  field       TEXT         -- scientific/application field (e.g. Catalysis, Semiconductor)
+  entries     INTEGER      -- total frame count in the .db file
+  source      TEXT         -- URL / DOI / provenance label
+  path        TEXT         -- relative path to the ASE .db file
+  code        TEXT         -- VASP | ABACUS | QE | CP2K ...
+  functional  TEXT         -- PBE | PBEsol | LDA | SCAN | HSE06 ...
+  pseudopot   TEXT         -- pseudopotential / PAW label
+  metadata    TEXT         -- extra metadata string
+  created_at  TEXT
+
+
+RULES:
+1. LIKE is permitted on name, system_type, field, source, description for fuzzy text matching.
+2. Always SELECT path so the caller can open the .db file.
+3. Never write UPDATE/INSERT/DELETE/DROP/ALTER/PRAGMA or ATTACH.
+4. Use LIMIT only if the user specifies a cap (infer 20 for "a few" / "top").
+5. Parenthesize OR groups; use explicit AND/OR.
+6. No JOINs are needed — all columns live in the single nodes table.
+
+EXAMPLES (follow these patterns):
+1) Find nodes by field
+    User: "Find Catalysis datasets"
+    SQL: SELECT name, system_type, field, entries, path
+          FROM nodes
+          WHERE field = 'Catalysis'
+
+2) Find nodes by DFT functional
+    User: "Find datasets computed with PBE"
+    SQL: SELECT name, functional, entries, path
+          FROM nodes
+          WHERE functional = 'PBE'
+
+3) Find nodes by domain name
+    User: "Show me the Domain_Cluster node"
+    SQL: SELECT name, description, system_type, entries, path
+          FROM nodes
+          WHERE name = 'Domain_Cluster'
+
+4) Fuzzy filter on system type
+    User: "A few bulk datasets"
+    SQL: SELECT name, system_type, field, entries, path
+          FROM nodes
+          WHERE system_type LIKE '%Bulk%'
+          LIMIT 20
+
+5) Combined filter
+    User: "Cluster datasets computed with CP2K"
+    SQL: SELECT name, code, functional, entries, path
+          FROM nodes
+          WHERE system_type LIKE '%Cluster%' AND code = 'CP2K'
+
+6) List all available nodes
+    User: "What datasets are available?" / "List all nodes"
+    SQL: SELECT name, system_type, field, entries, path
+          FROM nodes
+          ORDER BY name
 """
 
 
@@ -53,8 +99,8 @@ class SqlAgentOutput(BaseModel):
     sql: str = Field(
         ...,
         description=(
-            "Single SELECT statement targeting dataset_info. Do not include a trailing semicolon"
-            " or markdown fences."
+            "Single SELECT statement targeting nodes/datasets."
+            " No trailing semicolon or markdown fences."
         ),
     )
     rationale: str = Field(
@@ -69,25 +115,20 @@ class SqlAgentOutput(BaseModel):
 
 
 _SQL_AGENT_INSTRUCTION = f"""
-You are a SQL agent, accept the prompts of database querying from the user and return 
-the corresponding SQL code. Below is the description of the database and the rules you should follow:
-{_DB_GUIDE}
+You are a SQL agent. Accept natural-language dataset queries and return the corresponding SQL.
+Below is the schema and the rules you must follow:
+
+{_SCHEMA_GUIDE}
 
 Formatting requirements:
-- When matching text fields, wrap literals in single quotes and escape embedded quotes if necessary.
-- Apply LIMIT only if the user supplies one (or you infer "top"/"few" -> 20) and include ORDER BY when
-  returning ranked results.
-- **NEVER use LIKE with wildcards for the Elements column** (e.g., LIKE 'Si-%' or LIKE '%Si%'). 
-  Always use exact match with the = operator. If the user provides incomplete element information,
-  ask for clarification or return no results rather than using LIKE patterns.
-- For other text columns (Type, Fields, Source), LIKE may be used if fuzzy matching is explicitly requested.
+- Wrap text literals in single quotes; escape embedded single quotes.
+- Include ORDER BY when ranked results are implied.
+- No table aliases or JOINs are needed — query the nodes table directly.
 
 Output contract:
-- Respond with JSON conforming to SqlAgentOutput (sql/rationale/confidence). No additional keys.
-- The sql string must be a single line or multi-line SELECT without a trailing semicolon.
-- If assumptions are required, mention them in the rationale and set confidence="low".
-
-Do not call any tools or external services. Focus exclusively on translating the request into SQL.
+- Respond with JSON conforming to SqlAgentOutput (sql / rationale / confidence). No extra keys.
+- The sql field must be a single SELECT statement with no trailing semicolon.
+- Set confidence="low" and describe assumptions in rationale when the request is ambiguous.
 """
 
 
@@ -102,7 +143,7 @@ sql_agent = LlmAgent(
         base_url=_model_base_url,
         api_key=_model_api_key,
     ),
-    description="Produces safe SELECT statements over dataset_info for the Database Agent.",
+    description="Produces safe SELECT statements over nodes/datasets for the Database Agent.",
     instruction=_SQL_AGENT_INSTRUCTION,
     input_schema=SqlAgentInput,
     output_schema=SqlAgentOutput,

@@ -226,6 +226,7 @@ root_agent = LlmAgent(
     instruction=_PLOT_AGENT_INSTRUCTION,
     input_schema=PlotAgentInput,
     output_schema=PlotAgentOutput,
+    #disallow_transfer_to_parent=True,
     tools=[
         AgentTool(code_generator_agent),
         inspect_data,

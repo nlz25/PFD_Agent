@@ -50,6 +50,7 @@ from dflow.python import (
     PythonOPTemplate,
     Artifact,
     Parameter,
+    BigParameter,
     Slices,
 )
 
@@ -252,6 +253,35 @@ def run_command(
     return return_code, out, err
 
 
+def _is_artifact_type(typ) -> bool:
+    """Determine if a type should be treated as Artifact (True) or BigParameter (False).
+    
+    Args:
+        typ: The type to check
+        
+    Returns:
+        True if the type should be an Artifact (Path or List[Path]), False otherwise
+    """
+    # Handle typing.List, typing.Dict, etc.
+    import typing
+    
+    # Direct Path type
+    if typ is Path:
+        return True
+    
+    # Check for List[Path]
+    if hasattr(typ, '__origin__'):
+        origin = typ.__origin__
+        # For List[Path]
+        if origin is list:
+            args = getattr(typ, '__args__', ())
+            if args and args[0] is Path:
+                return True
+    
+    # Everything else (Dict, complex types, etc.) should be BigParameter
+    return False
+
+
 def dflow_remote_execution(
     artifact_inputs: Optional[Dict[str, type]] = None,
     artifact_outputs: Optional[Dict[str, type]] = None,
@@ -304,7 +334,10 @@ def dflow_remote_execution(
             def get_input_sign(cls):
                 inputs = {}
                 for key, typ in artifact_inputs.items():
-                    inputs[key] = Artifact(typ)
+                    if _is_artifact_type(typ):
+                        inputs[key] = Artifact(typ)
+                    else:
+                        inputs[key] = BigParameter(typ)
                 for key, typ in parameter_inputs.items():
                     inputs[key] = Parameter(typ)
                 return OPIOSign(inputs)
@@ -313,7 +346,10 @@ def dflow_remote_execution(
             def get_output_sign(cls):
                 outputs = {}
                 for key, typ in artifact_outputs.items():
-                    outputs[key] = Artifact(typ)
+                    if _is_artifact_type(typ):
+                        outputs[key] = Artifact(typ)
+                    else:
+                        outputs[key] = BigParameter(typ)
                 for key, typ in parameter_outputs.items():
                     outputs[key] = Parameter(typ)
                 return OPIOSign(outputs)
@@ -433,11 +469,16 @@ def dflow_remote_execution(
             # Separate artifacts and parameters
             for key, value in all_kwargs.items():
                 if key in artifact_inputs:
-                    # Upload artifact
-                    if isinstance(value, (list, tuple)):
-                        artifacts[key] = upload_artifact(value)
+                    typ = artifact_inputs[key]
+                    if _is_artifact_type(typ):
+                        # Upload as artifact
+                        if isinstance(value, (list, tuple)):
+                            artifacts[key] = upload_artifact(value)
+                        else:
+                            artifacts[key] = upload_artifact(value)
                     else:
-                        artifacts[key] = upload_artifact(value)
+                        # Use as big parameter
+                        parameters[key] = value
                 elif key in parameter_inputs:
                     parameters[key] = value
             
@@ -502,15 +543,19 @@ def dflow_remote_execution(
             
             # Download all artifacts
             result = {}
-            for key in artifact_outputs.keys():
+            for key, typ in artifact_outputs.items():
                 try:
-                    artifact_path = download_artifact(
-                        artifact=completed_step.outputs.artifacts[key],
-                        path=download_path,
-                    )
-                    result[key] = artifact_path
+                    if _is_artifact_type(typ):
+                        artifact_path = download_artifact(
+                            artifact=completed_step.outputs.artifacts[key],
+                            path=download_path,
+                        )
+                        result[key] = artifact_path
+                    else:
+                        # Get from big parameters
+                        result[key] = completed_step.outputs.parameters[key].value.recover() if isinstance(completed_step.outputs.parameters[key].value, (dflow.argo_objects.ArgoObjectDict,dflow.argo_objects.ArgoObjectList)) else completed_step.outputs.parameters[key].value
                 except Exception as e:
-                    logger.error(f"Failed to download artifact '{key}': {e}")
+                    logger.error(f"Failed to download output '{key}': {e}")
                     result[key] = None
             
             # Get parameters from output
@@ -639,7 +684,10 @@ def dflow_batch_execution(
             def get_input_sign(cls):
                 inputs = {}
                 for key, typ in artifact_inputs.items():
-                    inputs[key] = Artifact(typ)
+                    if _is_artifact_type(typ):
+                        inputs[key] = Artifact(typ)
+                    else:
+                        inputs[key] = BigParameter(typ)
                 for key, typ in parameter_inputs.items():
                     inputs[key] = Parameter(typ)
                 return OPIOSign(inputs)
@@ -648,7 +696,10 @@ def dflow_batch_execution(
             def get_output_sign(cls):
                 outputs = {}
                 for key, typ in artifact_outputs.items():
-                    outputs[key] = Artifact(typ)
+                    if _is_artifact_type(typ):
+                        outputs[key] = Artifact(typ)
+                    else:
+                        outputs[key] = BigParameter(typ)
                 for key, typ in parameter_outputs.items():
                     outputs[key] = Parameter(typ)
                 return OPIOSign(outputs)
@@ -826,11 +877,16 @@ def dflow_batch_execution(
             # Separate artifacts and parameters
             for key, value in all_kwargs.items():
                 if key in artifact_inputs:
-                    # Upload artifact
-                    if isinstance(value, (list, tuple)):
-                        artifacts[key] = upload_artifact(value)
+                    typ = artifact_inputs[key]
+                    if _is_artifact_type(typ):
+                        # Upload as artifact
+                        if isinstance(value, (list, tuple)):
+                            artifacts[key] = upload_artifact(value)
+                        else:
+                            artifacts[key] = upload_artifact(value)
                     else:
-                        artifacts[key] = upload_artifact(value)
+                        # Use as big parameter
+                        parameters[key] = value
                 elif key in parameter_inputs:
                     parameters[key] = value
             

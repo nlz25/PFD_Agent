@@ -20,10 +20,12 @@ bohrium_password = os.environ.get("BOHRIUM_PASSWORD", BOHRIUM_PASSWORD)
 bohrium_project_id = int(os.environ.get("BOHRIUM_PROJECT_ID", BOHRIUM_PROJECT_ID))
 
 description="""
-You are the DPA Agent for Deep Potential workflows. You test, validate and train DPA models, and run ASE-based MD and structure optimization using DPA model.
+DPA Agent. It test, validate and train DPA models, and run ASE-based MD and structure optimization using DPA model.
 """
 
-instruction ="""
+instruction_tmp ="""
+You are the agent responsible for Deep Potential (DP and DPA) models.
+
 - Capabilities (tools)
     - Training: train_input_doc, check_train_data, check_input, training
     - Simulation: get_base_model_path, run_molecular_dynamics, optimize_structure
@@ -47,17 +49,13 @@ instruction ="""
         1) get_base_model_path(model_path?)
         2) optimize_structure(input_structure, model_path, relax_cell?)
         3) Report optimized structure path and final energy.
+"""
 
-- Defaults and tips
-    - Prefer quick validations first (small splits, short MD stages, modest relax steps).
-    - Always return absolute artifact paths. 
-    - If a tool fails, surface the exact error and propose a minimal fix.
+instruction="""
+You are the agent responsible for test, training as well as atomistic simulation with Deep Potential (DP and DPA) models.
 
-- Response format
-    - Plan: 1-3 bullets with the next step(s).
-    - Action: exact tool name you will call.
-    - Result: key outputs with absolute paths and essential metrics.
-    - Next: immediate follow-up or stop.
+Require a model path for fine-tuning and simulation. If missing, resolve via get_base_model_path. For multi‑head DPA, set `head`.
+
 """
 
 executor = {
@@ -99,47 +97,6 @@ STORAGE = {
     }
 }
 
-# native supported tools
-def list_calculators() -> List[Dict[str, Any]]:
-    """List input requirements for DPA calculator.
-
-    Returns:
-      A list of dicts, one per registered calculator, with:
-        - name: calculator key to use as model_style
-        - description: short summary (aligned to wrapper implementation)
-        - requires_model_path: whether `model_path` must be provided
-        - optional_calc_args: optional kwargs for calculator initialization
-        - md_supported: whether suitable for MD in this toolkit
-        - notes: extra hints
-        - example: minimal example for run_molecular_dynamics
-    """
-    # Specs derived from src/pfd_agent_tool/modules/expl/calculator.py wrappers
-    specs: Dict[str, Dict[str, Any]] = {
-        "dpa": {
-            "description": "DeepMD (deepmd-kit) ASE calculator wrapper.",
-            "requires_model_path": True,
-            "optional_calc_args": ["head"],
-            "md_supported": True,
-            "notes": "Always specify `head` for multi-head models to select the desired potential. Default to `MP_traj_v024_alldata_mixu` if not specified.",
-            "example": "run_molecular_dynamics(initial_structure=Path('in.xyz'), stages=stages, model_style='dpa', model_path=Path('.tests/dpa/DPA2_medium_28_10M_rc0.pt'),head='MP_traj_v024_alldata_mixu')",
-        }
-    }
-
-    result: List[Dict[Any]] = []
-    for name in specs.keys():
-        spec = specs.get(name, {})
-        result.append({
-            "name": name,
-            "description": spec.get("description", ""),
-            "requires_model_path": spec.get("requires_model_path", False),
-            "required_init_params": spec.get("required_init_params", []),
-            "optional_init_params": spec.get("optional_init_params", []),
-            "md_supported": spec.get("md_supported", True),
-            "notes": spec.get("notes", ""),
-            "example": spec.get("example", ""),
-        })
-    return result
-
 
 tool_filter=[
         "check_train_data",
@@ -171,13 +128,13 @@ dpa_agent = LlmAgent(
         base_url=model_base_url,
         api_key=model_api_key
     ),
-    disallow_transfer_to_parent=False,
-    disallow_transfer_to_peers=False,
+    #disallow_transfer_to_parent=True,
+    #disallow_transfer_to_peers=True,
     description=description,
     instruction=instruction,
     tools=[
         toolset,
-        list_calculators,
+        #list_calculators,
         ],
     after_tool_callback=after_tool_callback
 )
