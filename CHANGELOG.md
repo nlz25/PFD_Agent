@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.0.4 (2026-03-16)
+
+### Bug Fixes
+
+- Issues with skill load
+  ([`7201ce6`](https://github.com/nlz25/PFD_Agent/commit/7201ce67765ad314495541fa55b9b96bcdbc6d44))
+
+### Chores
+
+- Update README
+  ([`8a08dc9`](https://github.com/nlz25/PFD_Agent/commit/8a08dc98034296912d02b5ea47b53a4a35b3861e))
+
+
 ## v1.0.3 (2026-03-16)
 
 ### Bug Fixes
