@@ -8,13 +8,17 @@ import os
 import logging
 from typing import Dict, Any, List
 from google.adk.agents import LlmAgent, InvocationContext
+from google.adk.agents.callback_context import CallbackContext
 from google.adk.apps.llm_event_summarizer import LlmEventSummarizer
 from google.adk.models.lite_llm import LiteLlm
+from google.adk.models.llm_request import LlmRequest
 from google.adk.tools.function_tool import FunctionTool
+from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.tool_context import ToolContext
 from google.adk.events import Event, EventActions
 from google.genai.types import Content, Part
+from pydantic import Field, BaseModel
 from .constants import (
     LLM_API_KEY, LLM_BASE_URL, 
     LLM_MODEL, 
@@ -39,6 +43,7 @@ _model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)
 _model_base_url = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
 _EXECUTION_COMPACT_EVERY_EVENTS = int(os.environ.get("EXECUTION_COMPACT_EVERY_EVENTS", str(EXECUTION_COMPACT_EVERY_EVENTS)))
 _EXECUTION_COMPACT_KEEP_TAIL = int(os.environ.get("EXECUTION_COMPACT_KEEP_TAIL", str(EXECUTION_COMPACT_KEEP_TAIL)))
+
 
 
 def _env_flag(name: str, default: bool) -> bool:
@@ -77,6 +82,8 @@ Previous execution history: {summarize}
 Critical rule:
 - Before executing EACH plan step, call `load_skill_context(skill_name=<step.skill>)`.
 - After loading context, follow the returned skill instruction and restrict tool usage to current skill tools.
+- After completing EACH plan stage, call `summarize_agent` to record what was done and the outcome.
+- Stop execution if you can't find solution for multiple consecutive steps, and wait for replanning.
 """
 
 
@@ -174,55 +181,63 @@ def execution_after_tool_callback(
     return None
 
 
+# Tools that must always remain available regardless of active skill
+_ALWAYS_AVAILABLE_EXECUTION_TOOLS: set[str] = {
+    "load_skill_context",
+    "break_execution",
+    "summarize_agent",
+}
+
+
+def execution_before_model_callback(
+    callback_context: CallbackContext,
+    llm_request: LlmRequest,
+) -> None:
+    """Filter LlmRequest tool declarations to the active skill's allowed set.
+
+    ``_process_agent_tools`` in ADK iterates ``agent.tools`` directly and
+    populates ``llm_request`` before this callback fires, so this is the
+    only reliable place to restrict what tools the model actually sees.
+    """
+    state = callback_context.state
+    active_names: list[str] = list(state.get("execution_selected_tool_names") or [])
+
+    # No skill loaded yet — allow all tools so the LLM can call load_skill_context.
+    if not active_names:
+        return None
+
+    allowed = set(active_names) | _ALWAYS_AVAILABLE_EXECUTION_TOOLS
+
+    # Filter the dispatch dictionary so unknown tool calls are rejected.
+    llm_request.tools_dict = {
+        name: tool
+        for name, tool in llm_request.tools_dict.items()
+        if name in allowed
+    }
+
+    # Filter the function declarations that are sent to the model.
+    if llm_request.config and llm_request.config.tools:
+        for tool in llm_request.config.tools:
+            if getattr(tool, "function_declarations", None):
+                tool.function_declarations = [
+                    decl
+                    for decl in tool.function_declarations
+                    if getattr(decl, "name", None) in allowed
+                ]
+
+    logger.info(
+        "before_model_callback: filtered tools to allowed=%s for skill '%s'",
+        allowed,
+        state.get("execution_active_skill", "unknown"),
+    )
+    return None
+
+
 class ExecutionAgent(LlmAgent):
     """Agent that executes approved plans by orchestrating domain agents."""
 
-    # Tools that must always remain available regardless of active skill
-    _ALWAYS_AVAILABLE_TOOLS: set[str] = {
-        "load_skill_context", 
-        "break_execution",
-        "run_python",
-        "run_bash",
-        "run_python_file",
-        }
-
-    async def canonical_tools(self, ctx=None) -> List[BaseTool]:
-        """Filter tools to those required by the active skill.
-
-        When a skill is active (i.e. `load_skill_context` has been called),
-        only expose tools belonging to that skill plus the always-available
-        control tools.  Before any skill is loaded the full tool list is
-        returned so the LLM can immediately call `load_skill_context`.
-        """
-        all_tools: List[BaseTool] = await super().canonical_tools(ctx)
-
-        active_names: list[str] = []
-        if ctx is not None:
-            state = getattr(ctx, "state", None) or {}
-            active_names = list(state.get("execution_selected_tool_names") or [])
-
-        # No skill loaded yet — return everything so the LLM can pick a skill.
-        if not active_names:
-            return all_tools
-
-        allowed = set(active_names) | self._ALWAYS_AVAILABLE_TOOLS
-        filtered = [t for t in all_tools if getattr(t, "name", None) in allowed]
-
-        logger.info(
-            "Tool filtering for active skill '%s': allowed=%s filtered_count=%d total_count=%d",
-            ctx.state.get("execution_active_skill", "unknown") if ctx else "unknown",
-            allowed,
-            len(filtered),
-            len(all_tools)
-            )
-        
-        # Safety: never return an empty list — fall back to full set.
-        if not filtered:
-            logger.warning(
-                "Tool filtering resulted in empty toolset for active skill '%s'. Returning full toolset as fallback.",
-                ctx.state.get("execution_active_skill", "unknown") if ctx else "unknown",
-            )
-        return filtered if filtered else all_tools
+    # Keep for reference / logging; real filtering is in execution_before_model_callback.
+    _ALWAYS_AVAILABLE_TOOLS: set[str] = _ALWAYS_AVAILABLE_EXECUTION_TOOLS
 
     @staticmethod
     def _is_compaction_event(event: Event) -> bool:
@@ -498,6 +513,48 @@ class ExecutionAgent(LlmAgent):
         finally:
             logger.info("Execution agent finished (assessment agent will determine next steps)")
 
+_SUMMARIZE_INSTRUCTION = """
+You summarize key outcomes and extract concrete artifacts (absolute paths/IDs when present).
+
+Session state context:
+- goal: {goal}
+- plan: {plan}
+"""
+
+class ExecutionSummary(BaseModel):
+    """Structured summary of execution outcomes for decision making."""
+    key_results: str = Field(
+        ...,
+        description="Concise summary of what was produced or learned during execution.",
+        max_length=1200,
+    )
+    artifacts: List[str] = Field(
+        default_factory=list,
+        description="Important generated files/paths/IDs observed in execution outputs.",
+    )
+    concise_summary: str = Field(
+        ...,
+        description="User-facing one-paragraph execution summary.",
+        max_length=800,
+    )
+
+summarize_agent = LlmAgent(
+    name="summarize_agent",
+    model=LiteLlm(
+        model=_model_name,
+        base_url=_model_base_url,
+        api_key=_model_api_key,
+    ),
+    description=(
+        "Summarizes execution progress/results from goal, approved plan, and execution history, "
+        "returning a structured ExecutionSummary."
+    ),
+    instruction=_SUMMARIZE_INSTRUCTION,
+    output_schema=ExecutionSummary
+)
+
+
+
 execution_agent = ExecutionAgent(
         name="execution_agent",
         model=LiteLlm(
@@ -507,6 +564,7 @@ execution_agent = ExecutionAgent(
         ),
         description="Executes approved plans by delegating to domain-specific agents in sequence.",
         instruction=_EXECUTION_INSTRUCTION,
+        before_model_callback=execution_before_model_callback,
         after_tool_callback=execution_after_tool_callback,
         disallow_transfer_to_parent=True,
         disallow_transfer_to_peers=True,
@@ -516,6 +574,7 @@ execution_agent = ExecutionAgent(
             FunctionTool(run_python),
             FunctionTool(run_bash),
             FunctionTool(run_python_file),
+            AgentTool(summarize_agent),
             *TOOLSETS],
         sub_agents=[],
     )

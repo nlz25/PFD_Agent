@@ -66,3 +66,13 @@ TOOLSETS.append(
     ]
 )
 )
+
+## MatterGen toolset
+TOOLSETS.append(
+    McpToolset(
+    connection_params=SseServerParams(
+        url="http://localhost:50006/sse", # Or any other MCP server URL
+        sse_read_timeout=7200,  # Set SSE timeout to 7200 seconds
+    )
+)
+)

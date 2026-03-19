@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import json
 import logging
+import re
 from typing import Any, Dict, List, Literal
 
 from google.adk.agents import LlmAgent, InvocationContext
@@ -24,6 +25,7 @@ from ..constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 _model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
 _model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)
 _model_base_url = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
+_summarize_agent_max_attempts = int(os.environ.get("SUMMARIZE_AGENT_MAX_ATTEMPTS", "5"))
 
 logger = logging.getLogger()
 
@@ -122,6 +124,15 @@ Rules:
 - If all required steps are complete and goal achieved -> mark_complete.
 """
 
+_RETRY_INSTRUCTION_TEMPLATE = """
+
+Previous output failed schema validation:
+{validation_error}
+
+Retry now and output ONLY a valid JSON object that conforms to the ExecutionSummary schema.
+Do not include markdown fences or explanatory text.
+"""
+
 
 class SummarizeAgent(LlmAgent):
     """Summarize execution history and render final output as readable text."""
@@ -139,6 +150,44 @@ class SummarizeAgent(LlmAgent):
             if isinstance(text, str) and text.strip():
                 chunks.append(text.strip())
         return "\n".join(chunks)
+
+    @staticmethod
+    def _extract_json_candidate(raw_text: str) -> str:
+        """Extract JSON candidate from raw text, tolerating fenced responses."""
+        text = raw_text.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*", "", text)
+            text = re.sub(r"\s*```$", "", text).strip()
+
+        match = re.search(r"\{[\s\S]*\}", text)
+        return match.group(0) if match else text
+
+    @classmethod
+    def _validate_execution_summary(
+        cls, event: Event | None
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """Validate final event payload against ExecutionSummary schema."""
+        if event is None:
+            return None, "No final response event was produced."
+
+        raw_text = cls._extract_text(event)
+        if not raw_text:
+            return None, "Final response event is empty."
+
+        candidate = cls._extract_json_candidate(raw_text)
+
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            return None, f"JSON decode error: {exc}"
+
+        try:
+            from pydantic import ValidationError
+            validated = ExecutionSummary.model_validate(parsed)
+        except ValidationError as exc:
+            return None, f"Schema validation error: {exc}"
+
+        return validated.model_dump(), None
 
     @staticmethod
     def _render_summary_text(summary: ExecutionSummary) -> str:
@@ -177,44 +226,56 @@ class SummarizeAgent(LlmAgent):
         )
 
     async def _run_async_impl(self, ctx: InvocationContext):
-        """Run summarization, then post-process final event into proper text."""
+        """Run summarization with retry until output matches ExecutionSummary schema."""
+        base_instruction = self.instruction
+        last_error = ""
+        validated_data: dict[str, Any] | None = None
         final_event: Event | None = None
 
         try:
-            async for event in super()._run_async_impl(ctx):
-                if event.is_final_response() and event.content:
-                    final_event = event
-                    continue
-                yield event
+            for attempt in range(1, _summarize_agent_max_attempts + 1):
+                logger.info(f"SummarizeAgent attempt {attempt}/{_summarize_agent_max_attempts}")
+                if attempt == 1:
+                    self.instruction = base_instruction
+                else:
+                    self.instruction = (
+                        base_instruction
+                        + _RETRY_INSTRUCTION_TEMPLATE.format(validation_error=last_error)
+                    )
 
-            if final_event is None:
-                logger.warning("SummarizeAgent: no final response event found")
+                buffered_events: List[Event] = []
+                candidate_final: Event | None = None
+
+                async for event in super()._run_async_impl(ctx):
+                    if event.is_final_response() and event.content:
+                        candidate_final = event
+                    else:
+                        buffered_events.append(event)
+
+                validated_data, validation_error = self._validate_execution_summary(candidate_final)
+                if validation_error is None:
+                    for event in buffered_events:
+                        yield event
+                    final_event = candidate_final
+                    break
+
+                last_error = validation_error
+                logger.warning(
+                    "SummarizeAgent schema validation failed on attempt %d/%d: %s",
+                    attempt,
+                    _summarize_agent_max_attempts,
+                    validation_error,
+                )
+
+            if validated_data is None or final_event is None:
+                logger.warning("SummarizeAgent: all attempts exhausted without valid output")
                 yield self._make_fallback_state_event(
                     self.name,
-                    "⚠️ Unable to generate execution summary. Routing back for replanning.",
+                    f"⚠️ Unable to generate valid execution summary after {_summarize_agent_max_attempts} attempts. Routing back for replanning.",
                 )
                 return
 
-            raw_text = self._extract_text(final_event)
-            summary_data: ExecutionSummary | None = None
-
-            try:
-                parsed = json.loads(raw_text)
-                summary_data = ExecutionSummary(**parsed)
-            except Exception:
-                logger.debug("SummarizeAgent: final response was not strict JSON, trying fallback parse")
-                try:
-                    summary_data = ExecutionSummary.model_validate_json(raw_text)
-                except Exception as parse_error:
-                    logger.warning(f"SummarizeAgent: failed to parse final summary: {parse_error}")
-
-            if summary_data is None:
-                logger.warning("SummarizeAgent: could not parse summary; emitting fallback replan state.")
-                yield self._make_fallback_state_event(
-                    self.name,
-                    "⚠️ Could not parse execution summary. Routing back for replanning.",
-                )
-                return
+            summary_data = ExecutionSummary.model_validate(validated_data)
 
             rendered_text = self._render_summary_text(summary_data)
             
