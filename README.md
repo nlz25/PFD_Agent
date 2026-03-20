@@ -55,6 +55,9 @@ python script/start_mcp_servers.py stop database dpa
 
 The script automatically handles port assignments and logging for each server, making it easier to manage the entire MCP server ecosystem in your local development environment. The server log would be sync at `logs/mcp_servers` under project root.
 
+> The default domain-based computational materials datasets is located at `database/domain_datasets.tar.gz`, which should be extracted for database tool usage. (See `tools/database/README.md`)
+
+
 ### Running agent networks
 #### Setting constants
 Populate `agents/MatCreator/.env` with your model API credentials.
