@@ -65,20 +65,22 @@ LLM_API_KEY="API_KEYS",
 LLM_BASE_URL="BASE_URL",
 ```
 
-If you prefer different LLM models for sub-agents, you can override the default setting at the `.env` file with sub-agents directories. 
+If you prefer different LLM models for sub-agents, you can override the default setting at the `.env` file within sub-agents directories. 
 
 #### Starting agent
 
 ```bash
-cd agents
-adk web
+python script/start_agent.py web
 ```
-This sets up the MatCreator agent network. You can tune the LLM model and communication settings for the agents.
+This would set up the MatCreator agent network through the default `adk web` server. You can tune the LLM model and communication settings for the agents.
+
+The default agent workspace is located at `agents/MatCreator/.workspace`, where skills, memory, etc., are stored. 
 
 #### Web UI
 A simple web UI that supports artifact upload/download, structure visualization and scientific plotting. The web UI server can be started with the following command:
 ```bash
-cd web && python streamlit_app.py 
+python script/start_agent.py api-server
+streamlit run web/streamlit_app.py 
 ```
 ![The web UI for MatCreator](docs/images/agent_plot.png)
 

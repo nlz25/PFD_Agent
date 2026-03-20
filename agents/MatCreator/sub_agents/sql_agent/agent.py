@@ -1,3 +1,11 @@
+"""SQL agent for querying the MatCreator materials node database.
+
+Defines ``sql_agent``, an ``LlmAgent`` that translates natural-language
+queries into SQL against the ``nodes`` table (ASE database index), executes
+them safely, and returns structured results for downstream consumption by
+the execution agent.
+"""
+
 from __future__ import annotations
 
 import os

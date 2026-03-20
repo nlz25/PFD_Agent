@@ -186,6 +186,7 @@ _ALWAYS_AVAILABLE_EXECUTION_TOOLS: set[str] = {
     "load_skill_context",
     "break_execution",
     "summarize_agent",
+    "plot_agent",
 }
 
 

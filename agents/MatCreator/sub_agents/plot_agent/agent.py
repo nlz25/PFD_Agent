@@ -215,7 +215,7 @@ _model_name = os.environ.get("LLM_MODEL")
 _model_api_key = os.environ.get("LLM_API_KEY")
 _model_base_url = os.environ.get("LLM_BASE_URL")
 
-root_agent = LlmAgent(
+plot_agent = LlmAgent(
     name="plot_agent",
     model=LiteLlm(
         model=_model_name,

@@ -24,7 +24,7 @@ def get_workspace_root() -> Path:
     env_val = os.environ.get("MATCLAW_WORKSPACE", "")
     if env_val:
         return Path(env_val).expanduser().resolve()
-    return (Path.home() / ".workspace").resolve()
+    return (Path(__file__).parent / ".workspace").resolve()
 
 
 def workspace_skills_dir() -> Path:

@@ -87,11 +87,11 @@ def list_workspace_skills() -> str:
     lines: list[str] = []
     # Flat skills
     for p in sorted(skills_dir.glob("*.md")):
-        lines.append(f"  [flat]   {p.stem}  →  {p.relative_to(skills_dir.parent.parent)}")
+        lines.append(f"  [flat]   {p.stem}  →  {p.relative_to(skills_dir.parent)}")
     # Subdir skills
     for p in sorted(skills_dir.glob("*/*.md")):
         if p.stem == p.parent.name:
-            lines.append(f"  [subdir] {p.stem}  →  {p.parent.relative_to(skills_dir.parent.parent)}/")
+            lines.append(f"  [subdir] {p.stem}  →  {p.parent.relative_to(skills_dir.parent)}/")
 
     if not lines:
         return "Workspace skills directory is empty."

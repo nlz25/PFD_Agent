@@ -46,7 +46,7 @@ import py3Dmol
 
 # Set page config
 st.set_page_config(
-    page_title="FFPilot",
+    page_title="MatCreator",
     page_icon="🔊",
     layout="centered"
 )
@@ -57,7 +57,8 @@ APP_NAME = "MatCreator"
 
 # Initialize session state variables
 if "user_id" not in st.session_state:
-    st.session_state.user_id = f"user-{uuid.uuid4()}"
+    # using default user name "user"
+    st.session_state.user_id = f"user"
     
 if "session_id" not in st.session_state:
     st.session_state.session_id = None
@@ -651,6 +652,10 @@ def send_message_sse(message, attachments=None):
                 st.error(f"Error: {response.text}")
                 return False
 
+            # Accumulate thought text across events; shown in a collapsed
+            # expander the first time a non-thought response event appears.
+            pending_thought_text = ""
+
             for line in response.iter_lines(decode_unicode=True, chunk_size=1):
                 if not line or not line.startswith("data: "):
                     continue
@@ -660,16 +665,34 @@ def send_message_sse(message, attachments=None):
                 try:
                     event = json.loads(data_str)
                     role = event.get("author", "agent")
-                    part = event.get("content", {}).get("parts", [{}])[0]
-                    
+                    parts = event.get("content", {}).get("parts", [{}])
+                    if not parts:
+                        parts = [{}]
+
+                    # Separate thought parts (internal reasoning) from
+                    # actual response parts.  Parts with thought=True are
+                    # emitted by thinking models (e.g. Gemini 2.5 Flash
+                    # Thinking) and should NOT be surfaced as the main reply.
+                    thought_text_chunk = ""
                     content = ""
+                    for p in parts:
+                        if p.get("thought", False):
+                            thought_text_chunk += p.get("text", "")
+                        elif "text" in p:
+                            content += p["text"]
+
+                    # Accumulate thoughts until a real response arrives.
+                    if thought_text_chunk:
+                        pending_thought_text += thought_text_chunk
+
+                    # Use the first part for functionResponse processing
+                    # (unchanged from original logic).
+                    part = parts[0]
+
                     structure_path = None
                     plot_path = None
                     model_path = None
-                    # Extract text content
-                    if "text" in part:
-                        content = part["text"]
-                    
+
                     # Extract function response content
                     if "functionResponse" in part:
                         fr = part["functionResponse"]
@@ -705,10 +728,20 @@ def send_message_sse(message, attachments=None):
                                 except json.JSONDecodeError:
                                     continue
                     
-                    # Display each event in its own chat message
-                    if content:
+                    # Only render a chat bubble when there is real (non-thought)
+                    # content.  Thought-only events are silently accumulated and
+                    # revealed in a collapsed expander together with the first
+                    # substantive response.
+                    if content or structure_path or plot_path or model_path:
                         with st.chat_message(role):
-                            st.markdown(content)
+                            # Surface any accumulated thinking before the reply.
+                            if pending_thought_text:
+                                with st.expander("🤔 Thinking...", expanded=False):
+                                    st.markdown(pending_thought_text)
+                                pending_thought_text = ""
+
+                            if content:
+                                st.markdown(content)
                             
                             # Visualize structure if present
                             if structure_path and os.path.exists(structure_path):
@@ -760,7 +793,7 @@ def send_message_sse(message, attachments=None):
         return False
 
 # UI Components
-st.title("FFPilot")
+st.title("MatCreator")
 
 # Sidebar - Mode selector at the top
 with st.sidebar:

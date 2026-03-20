@@ -1,3 +1,12 @@
+"""Root orchestration agent for MatCreator.
+
+Defines ``MatCreatorFlowAgent``, a custom ``BaseAgent`` that routes between
+the *thinking* phase (intent clarification, plan drafting, approval gating)
+and the *execution* phase (approved-plan step execution) using a session
+state variable ``phase``.  Also wires together the ADK ``App`` with event
+compaction and resumability support.
+"""
+
 from google.adk.agents import InvocationContext, BaseAgent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
