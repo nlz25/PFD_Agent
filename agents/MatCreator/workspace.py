@@ -15,6 +15,8 @@ import shutil
 from pathlib import Path
 from .constants import _KNOWLEDGE_PATH
 
+
+
 # ---------------------------------------------------------------------------
 # Path resolution
 # ---------------------------------------------------------------------------
@@ -26,17 +28,19 @@ def get_workspace_root() -> Path:
         return Path(env_val).expanduser().resolve()
     return (Path(__file__).parent / ".workspace").resolve()
 
+WORKSPACE_ROOT=get_workspace_root()  # resolved once at module load time for efficiency
+
 
 def workspace_skills_dir() -> Path:
-    return get_workspace_root() / "skills"
+    return WORKSPACE_ROOT / "skills"
 
 
 def workspace_guides_dir() -> Path:
-    return get_workspace_root() / "guides"
+    return WORKSPACE_ROOT / "guides"
 
 
 def workspace_memory_path() -> Path:
-    return get_workspace_root() / "MEMORY.md"
+    return WORKSPACE_ROOT / "MEMORY.md"
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +56,7 @@ def init_workspace(force: bool = False) -> str:
 
     Returns a human-readable status message.
     """
-    root = get_workspace_root()
+    root = WORKSPACE_ROOT
     skills_dir = workspace_skills_dir()
     guides_dir = workspace_guides_dir()
 

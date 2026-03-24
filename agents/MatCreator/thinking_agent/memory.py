@@ -7,8 +7,8 @@ persistent session memory stored in skills/MEMORY.md.
 from __future__ import annotations
 
 import os
-from ..constants import _MEMORY_PATH
-
+from ..workspace import WORKSPACE_ROOT
+_MEMORY_PATH = WORKSPACE_ROOT / "MEMORY.md"
 
 def load_memory() -> str:
     """Return the full contents of MEMORY.md, or an empty string if missing."""
