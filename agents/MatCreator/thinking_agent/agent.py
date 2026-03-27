@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import logging
 from typing import Dict, Any, List, Optional
+from pydantic import BaseModel, Field
 
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
@@ -133,6 +134,47 @@ _summarize_tool_agent = LlmAgent(
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,
 )
+# ---------------------------------------------------------------------------
+# Intent tool
+# ---------------------------------------------------------------------------
+class WorkflowClassification(BaseModel):
+    """Classification of workflow type based on user intent."""
+    goal: str = Field(
+        ...,
+        description="Single-sentence articulation of the user's goal/intent",
+        max_length=300,
+    )
+    reasoning: str = Field(
+        ...,
+        description="Brief explanation of why you think this way",
+        #max_length=300,
+    )
+
+_CLASSIFICATION_INSTRUCTION = f"""
+You are an agent that determine user goal. 
+
+## Task
+- Infer the user's goal as one concise sentence using the correct domain terminology above.
+- Provide short reasoning explaining which workflow type applies.
+
+## Rule
+Output in JSON format
+"""
+
+intent_tool_agent = LlmAgent(
+    name="user_intent",
+    model=LiteLlm(
+        model=_model_name,
+        base_url=_model_base_url,
+        api_key=_model_api_key,
+    ),
+    description="Determine user's goal.",
+    instruction=_CLASSIFICATION_INSTRUCTION,
+    output_schema=WorkflowClassification,
+    disallow_transfer_to_parent=True,
+    disallow_transfer_to_peers=True,
+)
+
 
 # ---------------------------------------------------------------------------
 # Instruction
@@ -145,44 +187,24 @@ You are MatCreator, an AI assistant for computational materials science workflow
 - Memory: {memory}
 - Available skills: {skills}
 - Available guides: {guides}
+- Goal: {goal}
+- Plan: {plan}
 - Active skill: {active_skill}
 - Skill instruction: {skill_instruction}
 - Summarize: {summarize}
 
-## Your capabilities
-Planning tools:
-- plan_builder_agent             : draft or update a structured ExecutionPlan
-- load_guide_content(guide_name) : fetch the full body of a guide by name
-- load_skill_content(skill_name) : fetch the full instruction of a skill by name
-- update_memory(new_entries)     : persist new knowledge to MEMORY.md
-
-Skill & execution tools:
-- load_skill_context(skill_name) : load a skill's instruction into the active context above
-- summarize_agent                : record the outcome of a completed step
-- run_python(code)               : run Python code in a subprocess
-- run_bash(script)               : run a bash script in a subprocess
-- run_python_file(relative_path) : run a Python script from the workspace
-
-Workspace tools:
-- init_workspace_tool            : initialise the .workspace/ directory
-- list_workspace_skills          : list skills in the workspace
-- create_skill                   : scaffold a new skill
-- write_workspace_file           : write any file under the workspace
-- read_workspace_file            : read any file from the workspace
-
-## Workflow
-1. Understand the user's goal. Ask clarifying questions if needed.
-2. Use plan_builder_agent to draft a clear plan. Show it to the user.
-3. **Before running any code**, always show the exact code/command to the user and
-   wait for explicit confirmation (e.g. "yes", "ok", "proceed").
-4. For each plan step, call load_skill_context(skill_name) first, then follow the
+## Default workflow
+1. Understand the user's goal by `user_intent`. Ask clarifying questions if needed.
+2. Use `plan_builder_agent` to draft a clear plan. Show it to the user.
+3. **Before executing the plan**, always wait for explicit confirmation (e.g. "yes", "ok", "proceed").
+4. For each plan step, call `load_skill_context(skill_name)` first, then follow the
    injected skill instruction above.
-5. After completing each step, call summarize_agent to record outcomes.
+5. After completing each step, call `summarize_agent` to record outcomes.
 6. If a step fails, diagnose, propose a fix, and confirm with the user before retrying.
 
 ## Rules
 - NEVER run code without explicit user approval.
-- Always call load_skill_context before executing a domain-specific step.
+- Always call `load_skill_context` before executing a domain-specific step.
 - Keep responses concise; include key results with absolute paths when relevant.
 - When you encounter an error, quote the exact message and propose concrete solutions.
 """
@@ -259,6 +281,7 @@ thinking_agent = LlmAgent(
     tools=[
         AgentTool(plan_builder_agent),
         AgentTool(_summarize_tool_agent),
+        AgentTool(intent_tool_agent),
         FunctionTool(load_skill_context),
         FunctionTool(load_guide_content),
         FunctionTool(load_skill_content),
