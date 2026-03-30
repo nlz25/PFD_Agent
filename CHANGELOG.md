@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v1.0.15 (2026-03-30)
+
+### Bug Fixes
+
+- Update basic tools
+  ([`06d1653`](https://github.com/nlz25/PFD_Agent/commit/06d1653e684efb0faaf3416f39aca22414edbe0d))
+
+- Update UI
+  ([`b4647b6`](https://github.com/nlz25/PFD_Agent/commit/b4647b6f7365dacefd7dd49935c4248860fb2628))
+
+
 ## v1.0.14 (2026-03-29)
 
 ### Bug Fixes
