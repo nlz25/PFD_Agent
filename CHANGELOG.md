@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v1.0.17 (2026-03-31)
+
+### Bug Fixes
+
+- Add clear_current_skill function
+  ([`836c32c`](https://github.com/nlz25/PFD_Agent/commit/836c32ce7d7b9058749d073465d1b0f75c316ef3))
+
+- Add trajectory
+  ([`f4e41c4`](https://github.com/nlz25/PFD_Agent/commit/f4e41c43bcee60965f9e98f7e0e6d87e38940344))
+
+- Rescope crystal structure skill to quests
+  ([`f876ec1`](https://github.com/nlz25/PFD_Agent/commit/f876ec1065abbe8ec64b1042bd834491ef829c1a))
+
+
 ## v1.0.16 (2026-03-31)
 
 ### Bug Fixes
