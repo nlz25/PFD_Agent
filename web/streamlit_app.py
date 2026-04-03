@@ -543,8 +543,8 @@ def load_session(session_id):
             for event in session_data.get('events', []):
                 content = event.get('content', {})
                 author = event.get('author', 'agent')
-                print('event_content:', content)
-                print('event_author:', author)
+                #print('event_content:', content)
+                #print('event_author:', author)
                 # Determine role (user or agent)
                 role = 'user' if author == 'user' else 'agent'
                 
@@ -561,6 +561,8 @@ def load_session(session_id):
                 artifact_path = None
                 text = ""
                 thought_text = ""
+                function_calls = []
+                function_responses = []
 
                 # Process all parts, separating thought parts from response parts
                 for part in parts:
@@ -572,10 +574,16 @@ def load_session(session_id):
                     if "text" in part:
                         text += part.get("text", "")
 
+                    # Extract function calls
+                    if "functionCall" in part:
+                        fc = part["functionCall"]
+                        function_calls.append({"id": fc.get("id"), "name": fc.get("name", "Unknown"), "args": fc.get("args", {})})
+
                     # Extract paths from functionResponse
                     if "functionResponse" in part:
                         fr = part["functionResponse"]
                         resp = fr.get("response", {})
+                        function_responses.append({"id": fr.get("id"), "name": fr.get("name", "Unknown"), "response": resp})
 
                         # Check for plot path
                         p_path = resp.get("plot_path")
@@ -596,6 +604,10 @@ def load_session(session_id):
                             
                 if thought_text:
                     msg_entry["thought"] = thought_text
+                if function_calls:
+                    msg_entry["function_calls"] = function_calls
+                if function_responses:
+                    msg_entry["function_responses"] = function_responses
                 if text:
                     msg_entry["content"] = text
                 # Add extracted paths to message entry
@@ -609,7 +621,38 @@ def load_session(session_id):
                     msg_entry["artifact_path"] = artifact_path
                     msg_entry["content"] = "**Artifact**"
                 messages.append(msg_entry)
-            
+
+            # Post-process: embed each functionResponse into its matching functionCall by ID.
+            # Then remove messages that contained only those now-merged responses.
+            fr_by_id = {
+                fr["id"]: fr
+                for msg in messages
+                for fr in msg.get("function_responses", [])
+                if fr.get("id")
+            }
+            merged_fr_ids = set()
+            for msg in messages:
+                for fc in msg.get("function_calls", []):
+                    fc_id = fc.get("id")
+                    if fc_id and fc_id in fr_by_id:
+                        fc["response"] = fr_by_id[fc_id]["response"]
+                        merged_fr_ids.add(fc_id)
+
+            def _is_merged_response_only(msg):
+                frs = msg.get("function_responses", [])
+                return (
+                    frs
+                    and not msg.get("function_calls")
+                    and not msg.get("content")
+                    and not msg.get("thought")
+                    and not msg.get("structure_path")
+                    and not msg.get("plot_path")
+                    and not msg.get("artifact_path")
+                    and all(fr.get("id") in merged_fr_ids for fr in frs if fr.get("id"))
+                )
+
+            messages = [m for m in messages if not _is_merged_response_only(m)]
+
             st.session_state.messages = messages
             st.session_state.artifacts = artifacts
             st.session_state.audio_files = []
@@ -872,6 +915,18 @@ if st.session_state.view_mode == "session":
                     if "thought" in msg:
                         with st.expander("🤔 Thinking...", expanded=False):
                             st.markdown(msg["thought"])
+                    if "function_calls" in msg:
+                        for fc in msg["function_calls"]:
+                            with st.expander(fc["name"], expanded=False, icon="🔧"):
+                                st.json(fc["args"])
+                            if "response" in fc:
+                                with st.expander(fc["name"], expanded=False, icon="📥"):
+                                    st.json(fc["response"])
+                    elif "function_responses" in msg:
+                        # Unmatched responses (no paired call in this message)
+                        for fr in msg["function_responses"]:
+                            with st.expander(fr["name"], expanded=False, icon="📥"):
+                                st.json(fr["response"])
                     if "content" in msg:
                         st.write(msg["content"])
 
