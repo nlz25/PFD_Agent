@@ -15,7 +15,70 @@ source .venv/bin/activate
 uv pip install -e .
 ```
 
-### Skills
+### Recommended Workflow: WSL + uv for Virtual Environment Deployment
+
+We highly recommend using WSL (Windows Subsystem for Linux) with uv to deploy local development virtual environments. WSL provides a native Linux environment seamlessly integrated with Windows, enabling access to Linux tools. As a fast, lightweight Python package manager, uv creates isolated environments to avoid dependency conflicts, ideal for Python applications like Streamlit.
+
+#### Why Use pipx for uv in WSL
+
+In WSL, system Python is managed by apt and is a core system component. PEP 668 prohibits direct pip installation to avoid breaking system dependencies. Pipx is ideal for tools like uv: it creates isolated virtual environments for global access without polluting system Python.
+
+#### Solution: Install uv Using pipx
+
+As a command-line tool, uv can be installed via pipx, which creates an independent virtual environment for global use. Run these commands in the WSL terminal:
+
+```bash
+# 1. Install pipx
+sudo apt update && sudo apt install pipx -y
+
+# 2. Initialize pipx (add to system PATH)
+pipx ensurepath
+
+# 3. Restart terminal, then install uv
+pipx install uv
+```
+
+### Running agent networks
+#### Setting environments
+Before the first run, create the `agents/MatCreator/.env` file and configure your model API credentials (additional environment variables may be required for some functionalities).
+
+```bash
+touch agents/MatCreator/.env
+```
+
+An example content of `.env`:
+
+```env
+LLM_MODEL= "MODEL_TYPE"
+LLM_API_KEY="API_KEYS"
+LLM_BASE_URL="BASE_URL"
+
+# SKILL_RELATED_ENV
+# ...
+```
+
+If you prefer different LLM models for sub-agents, you can override the default setting at the `.env` file within sub-agents directories. 
+
+#### Web UI (Recommended)
+A simple web UI that supports artifact upload/download, structure visualization and scientific plotting. The web UI server can be started with the following command:
+```bash
+#We strongly recommend running the following script in the background and saving the runtime logs.
+ 
+nohup python script/start_agent.py api-server >> server.log &
+nohup streamlit run web/streamlit_app.py >> web.log &
+```
+![The web UI for MatCreator](docs/images/agent_plot.png)
+
+#### Starting agent (old style)
+
+```bash
+python script/start_agent.py web
+```
+This would set up the MatCreator agent network through the default `adk web` server. You can tune the LLM model and communication settings for the agents.
+
+The default agent workspace is located at `agents/MatCreator/.workspace`, where skills, memory, etc., are stored. 
+
+## Skills
 MatCreator follows a modular design principle: skills are text files that define metadata, procedures and workflows. Some skills may require specialized tools (configured by `$PROJECT/agents/MatCreator/tools.py`), and some of them, e.g. tools for DFT calculations, may be hosted on MCP servers.
 
 > The default domain-based computational materials datasets is located at `database/domain_datasets.tar.gz`, which should be extracted for database skill usage. (See `tools/database/README.md`)
@@ -26,7 +89,7 @@ MatCreator follows a modular design principle: skills are text files that define
 > **Note — transitioning from MCP servers to skills:** MatCreator is progressively moving tool logic out of dedicated MCP servers and into self-contained skills. A skill bundles its own workflow instructions, helper scripts, and configuration alongside the `.md` file, so it can be run with only a general-purpose shell/Python tool rather than a running server process. If a capability you previously used via an MCP server is no longer listed under `tools/`, check `agents/MatCreator/knowledge/skills/` — it may have been migrated to a skill. MCP servers are retained only for tools that genuinely require a persistent service (e.g. a remote job scheduler or a database backend).
 
 
-####  Server setup (Optional)
+###  Server setup (Optional)
 For example, to set up a `mcp` server for `ABACUS` DFT software, `uv run` the script: 
 
 ```bash
@@ -36,40 +99,6 @@ uv sync
 uv run server.py --port 50001
 ```
  You may need to set environment variables specific to the mcp server at `tools/$TOOLNAME/.env`, which can be referenced in `tools/$TOOLNAME/README.md`
-
-
-
-### Running agent networks
-#### Setting constants
-Populate `agents/MatCreator/.env` with your model API credentials. Some skills may need additional env variables.
-
-```env
-LLM_MODEL= "MODEL_TYPE"
-LLM_API_KEY="API_KEYS",
-LLM_BASE_URL="BASE_URL",
-
-# SKILL_RELATED_ENV
-# ...
-```
-
-If you prefer different LLM models for sub-agents, you can override the default setting at the `.env` file within sub-agents directories. 
-
-#### Starting agent
-
-```bash
-python script/start_agent.py web
-```
-This would set up the MatCreator agent network through the default `adk web` server. You can tune the LLM model and communication settings for the agents.
-
-The default agent workspace is located at `agents/MatCreator/.workspace`, where skills, memory, etc., are stored. 
-
-#### Web UI
-A simple web UI that supports artifact upload/download, structure visualization and scientific plotting. The web UI server can be started with the following command:
-```bash
-python script/start_agent.py api-server
-streamlit run web/streamlit_app.py 
-```
-![The web UI for MatCreator](docs/images/agent_plot.png)
 
 ### Customize skills
 
