@@ -745,12 +745,16 @@ def send_message_sse(message, attachments=None):
 
             accumulated_thought = ""
             accumulated_content = ""
+            # {id: {name, args, response}} — built up as function call/response parts arrive
+            streaming_function_calls = {}
 
             with st.chat_message("agent"):
-                # Mirror load_session display order: thought expander first, then content
-                thought_expander = st.expander("🤔 Thinking...", expanded=False)
-                thought_area = thought_expander.empty()
+                # Placeholders created lazily so nothing is rendered until data arrives
+                thought_expander_holder = st.empty()
+                fc_area = st.container()
                 content_area = st.empty()
+
+                thought_area = None  # created on first thought chunk
 
                 for line in response.iter_lines(decode_unicode=True):
                     if not line or not line.startswith("data: "):
@@ -762,8 +766,30 @@ def send_message_sse(message, attachments=None):
                         event = json.loads(data_str)
                         for p in event.get("content", {}).get("parts", []):
                             if p.get("thought", False):
+                                # Lazily create the thought expander on first thought chunk
+                                if thought_area is None:
+                                    thought_area = thought_expander_holder.expander("🤔 Thinking...", expanded=False).empty()
                                 accumulated_thought += p.get("text", "")
                                 thought_area.markdown(accumulated_thought)
+
+                            elif "functionCall" in p:
+                                fc = p["functionCall"]
+                                fc_id = fc.get("id") or fc.get("name", "")
+                                streaming_function_calls.setdefault(fc_id, {"name": fc.get("name", "Unknown"), "args": fc.get("args", {})})
+                                with fc_area:
+                                    with st.expander(fc.get("name", "Unknown"), expanded=False, icon="🔧"):
+                                        st.json(fc.get("args", {}))
+
+                            elif "functionResponse" in p:
+                                fr = p["functionResponse"]
+                                fr_id = fr.get("id") or fr.get("name", "")
+                                resp = fr.get("response", {})
+                                fc_entry = streaming_function_calls.get(fr_id)
+                                fc_name = fc_entry["name"] if fc_entry else fr.get("name", "Unknown")
+                                with fc_area:
+                                    with st.expander(fc_name, expanded=False, icon="📥"):
+                                        st.json(resp)
+
                             elif "text" in p:
                                 accumulated_content += p["text"]
                                 content_area.markdown(accumulated_content)
@@ -905,7 +931,7 @@ if st.session_state.view_mode == "session":
             if msg["role"] == "user":
                 with st.chat_message("user"):
                     if "content" in msg:
-                        st.write(msg["content"])
+                        st.markdown(msg["content"])
                     # Show attachments if present
                     if "attachments" in msg and msg["attachments"]:
                         for att_path in msg["attachments"]:
@@ -928,7 +954,7 @@ if st.session_state.view_mode == "session":
                             with st.expander(fr["name"], expanded=False, icon="📥"):
                                 st.json(fr["response"])
                     if "content" in msg:
-                        st.write(msg["content"])
+                        st.markdown(msg["content"])
 
                     # Show structure button — opens in right panel
                     if "structure_path" in msg and os.path.exists(resolve_path(msg["structure_path"])):
