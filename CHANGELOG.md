@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.0.20 (2026-04-09)
+
+### Bug Fixes
+
+- Update the web interface
+  ([`e6978a2`](https://github.com/nlz25/PFD_Agent/commit/e6978a24168617629bd72ede2a6cf075feb72f62))
+
+
 ## v1.0.19 (2026-04-03)
 
 ### Bug Fixes
