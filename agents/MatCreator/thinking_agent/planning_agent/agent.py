@@ -1,30 +1,21 @@
-"""Plan-builder sub-agent for the ThinkingAgent.
+"""Plan validation tool for the ThinkingAgent.
 
-This agent is the structural equivalent of `database_agent/sql_agent`:
-it accepts a structured planning request via `PlanBuilderInput` and returns
-a fully-formed `ExecutionPlan` JSON without any custom orchestration logic.
+Provides a Pydantic-backed ``validate_plan`` function tool that the thinking
+agent calls after generating a plan to validate schema conformance and
+persist it to session state.
 """
 
 from __future__ import annotations
 
 import logging
-import os
-from typing import Any, List
+from typing import List
 
-from google.adk.agents import LlmAgent
-from google.adk.models.lite_llm import LiteLlm
-from google.adk.tools.function_tool import FunctionTool
-from pydantic import BaseModel, Field, field_validator
+from google.adk.tools.tool_context import ToolContext
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from ...constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
-from ..skill import _load_skill_registry, load_guide_content, load_skill_content
-from ..memory import read_memory
+from ..skill import _load_skill_registry
 
-_model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
-_model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)
-_model_base_url = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
-
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -59,25 +50,6 @@ class PlanStep(BaseModel):
         return value
 
 
-class _ExecutionPlan(BaseModel):
-    """Structured execution plan for user approval."""
-    stages: List[str] = Field(
-        ..., description="Stages of execution, be general. Example: ['Evaluate the pre-trained model','Proceed to fine-tuning only if neccesary']"
-    )
-    current_stage: int = Field(..., description="The current stage of execution")
-    steps: List[PlanStep] = Field(
-        ...,
-        #description="Ordered list of detailed execution steps, ONLY includes DETERMINED steps",
-        description="Ordered list of detailed steps in the CURRENT stage, ONLY includes DETERMINED steps",
-        min_items=1,
-        max_items=10,
-    )
-    additional_notes: str = Field(
-        ...,
-        description="Any extra information or considerations for the user",
-        max_length=500,
-    )
-
 class ExecutionPlan(BaseModel):
     """Structured execution plan for user approval."""
     steps: List[PlanStep] = Field(
@@ -95,90 +67,38 @@ class ExecutionPlan(BaseModel):
 
 
 
-class PlanBuilderInput(BaseModel):
-    """Structured request passed from the ThinkingAgent to the plan-builder."""
-
-    goal: str = Field(
-        ...,
-        description="Immediate goal in one sentence.",
-    )
-    comments: str = Field(
-        ...,
-        description="Additional comments or context for the plan-builder.",
-    )
-
-
 # ---------------------------------------------------------------------------
-# Instruction
+# validate_plan tool
 # ---------------------------------------------------------------------------
 
-_PLAN_BUILDER_INSTRUCTION = """
-You are a plan-builder. Produce an execution plan for the given goal.
+def validate_plan(plan: dict, tool_context: ToolContext) -> dict:
+    """Validate and commit a plan to session state.
 
-Goal: {goal}
-Available skills: {skills}
-Guide summaries: {guides}
-Current plan (if updating): {plan}
+    Call this after drafting a plan to validate it against the schema
+    and persist it. On success the plan is stored under the 'plan' session
+    state key and returned. On failure the validation errors are returned so
+    you can fix and retry.
 
-Output ONLY a JSON object — no markdown fences, no extra text:
-{{
-  "steps": [
-    {{"step_number": 1, "skill": "<skill_name>", "action": "<1-2 sentence description>"}}
-  ],
-  "additional_notes": "<any extra information for the user>"
-}}
-
-Rules:
-- skill must be one of the names listed in Available skills.
-- Include 1-10 steps.
-- Use the `load_guide_content` tool to fetch the full body of any relevant guide(s) if needed to inform the plan.
-"""
-
-
-# ---------------------------------------------------------------------------
-# Agent
-# ---------------------------------------------------------------------------
-
-def _plan_builder_before_tool(
-    tool: Any, args: dict, tool_context: Any
-) -> None:
-    logger.info(
-        "[plan_builder_agent] before_tool | tool=%s | args=%s",
-        getattr(tool, "name", tool),
-        args,
-    )
-    return None
-
-
-def _plan_builder_after_tool(
-    tool: Any, args: dict, tool_context: Any, tool_response: Any
-) -> None:
-    logger.info(
-        "[plan_builder_agent] after_tool  | tool=%s | response=%s",
-        getattr(tool, "name", tool),
-        tool_response,
-    )
-    return None
-
-
-plan_builder_agent = LlmAgent(
-    name="plan_builder_agent",
-    model=LiteLlm(
-        model=_model_name,
-        base_url=_model_base_url,
-        api_key=_model_api_key
-    ),
-    description=(
-        "Produces a detailed ExecutionPlan JSON. ALWAYS call it when creating/updating plans."
-    ),
-    instruction=_PLAN_BUILDER_INSTRUCTION,
-    tools=[
-        FunctionTool(load_guide_content),
-        FunctionTool(load_skill_content),
-        #FunctionTool(read_memory),
-    ],
-    before_tool_callback=_plan_builder_before_tool,
-    after_tool_callback=_plan_builder_after_tool,
-    disallow_transfer_to_parent=True,
-    disallow_transfer_to_peers=True,
-)
+    Args:
+        plan: Dict with 'steps' (list of {step_number, skill, action}) and
+              'additional_notes' (str).
+    """
+    try:
+        validated = ExecutionPlan(**plan)
+        tool_context.state["plan"] = validated.model_dump()
+        return {
+            "status": "ok",
+            "plan": validated.model_dump(),
+            "message": f"Plan validated and saved with {len(validated.steps)} steps.",
+        }
+    except ValidationError as exc:
+        return {
+            "status": "error",
+            "errors": exc.errors(),
+            "message": "Plan validation failed. Fix the errors and re-call validate_plan.",
+        }
+    except Exception as exc:
+        return {
+            "status": "error",
+            "message": f"Unexpected error: {exc}",
+        }
