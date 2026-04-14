@@ -28,9 +28,8 @@ from .skill import (
     list_guide_metadata,
     load_guide_content,
     load_skill_content,
-    _load_skill_registry,
-    Skill,
 )
+from ..skill import ALL_SKILLS
 from .memory import update_memory, read_memory
 from .workspace_tools import (
     write_workspace_file,
@@ -64,38 +63,35 @@ def load_skill_context(skill_name: str, tool_context: ToolContext) -> dict:
     Args:
         skill_name: Exact skill name as listed in Available skills.
     """
-    skill_registry = _load_skill_registry()
     normalized = (skill_name or "").strip()
     if not normalized:
         return {
             "status": "error",
             "message": "skill_name is required.",
-            "available_skills": sorted(skill_registry.keys()),
+            "available_skills": sorted(s.name for s in ALL_SKILLS),
         }
 
-    selected: Skill | None = skill_registry.get(normalized)
+    selected = next((s for s in ALL_SKILLS if s.name == normalized), None)
     if selected is None:
         lowered = normalized.lower()
-        for name, skill in skill_registry.items():
-            if name.lower() == lowered:
-                selected = skill
-                break
+        selected = next((s for s in ALL_SKILLS if s.name.lower() == lowered), None)
 
     if selected is None:
         return {
             "status": "error",
             "message": f"Skill '{skill_name}' not found.",
-            "available_skills": sorted(skill_registry.keys()),
+            "available_skills": sorted(s.name for s in ALL_SKILLS),
         }
 
     tool_context.state["active_skill"] = selected.name
-    tool_context.state["skill_instruction"] = selected.instruction
+    tool_context.state["skill_instruction"] = selected.instructions
 
+    needed_tools = selected.frontmatter.metadata.get("tools", [])
     return {
         "status": "ok",
         "skill": selected.name,
-        "instruction": selected.instruction,
-        "needed_tools": selected.needed_tools,
+        "instruction": selected.instructions,
+        "needed_tools": needed_tools,
         "message": f"Loaded skill context for '{selected.name}'.",
     }
 

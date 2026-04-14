@@ -1,8 +1,9 @@
 """Markdown-backed workflow skills and search utilities for MatCreator.
 
-Loading order (later entries override earlier ones with the same skill name):
-1. Built-in package skills  : knowledge/skills/*.md  and  knowledge/skills/*/*.md
-2. Workspace overlay skills : $MATCLAW_WORKSPACE/skills/*.md  and  …/skills/*/*.md
+Skills are now loaded in standard ADK format via the top-level skill.py
+(google.adk.skills.load_skill_from_dir).  This module bridges ADK Skill
+objects to the interface expected by the planning/execution agents and keeps
+the guide system unchanged.
 """
 
 from __future__ import annotations
@@ -10,18 +11,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List
-from ..constants import _SKILLS_DIR, _GUIDES_DIR, _workspace_skills_dir, _workspace_guides_dir
 
+from ..constants import _GUIDES_DIR, _workspace_guides_dir
 
-@dataclass(frozen=True)
-class Skill:
-    """Container for agent skills from markdown skills."""
-    instruction: str
-    description: str
-    needed_tools: List[str]
-    dependent_skills: List[str]
-    name: str
-    source_path: str
+# Re-export ADK Skill so callers can still do `from .skill import Skill`.
+from google.adk.skills import Skill  # noqa: F401
 
 
 @dataclass(frozen=True)
@@ -33,6 +27,7 @@ class Guide:
     tags: List[str]
     skills: List[str]
     source_path: str
+
 
 def _parse_list_value(raw_value: str) -> List[str]:
     value = (raw_value or "").strip()
@@ -46,88 +41,68 @@ def _parse_list_value(raw_value: str) -> List[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def _parse_skill_markdown(path: Path) -> Skill:
-    raw_text = path.read_text(encoding="utf-8")
-    stripped = raw_text.strip()
+# ---------------------------------------------------------------------------
+# Skill interface — bridged to ADK ALL_SKILLS
+# ---------------------------------------------------------------------------
 
-    metadata: Dict[str, str] = {}
-    body = raw_text
-
-    if stripped.startswith("---"):
-        first_sep = raw_text.find("---")
-        second_sep = raw_text.find("\n---", first_sep + 3)
-        if second_sep != -1:
-            frontmatter = raw_text[first_sep + 3:second_sep].strip()
-            body = raw_text[second_sep + 4:].strip()
-            for line in frontmatter.splitlines():
-                if ":" not in line:
-                    continue
-                key, value = line.split(":", 1)
-                metadata[key.strip()] = value.strip()
-
-    name = metadata.get("name") or path.stem
-    description = metadata.get("description", "")
-    needed_tools = _parse_list_value(metadata.get("tools", ""))
-    dependent_skills = _parse_list_value(metadata.get("dependent_skills", ""))
-
-    return Skill(
-        instruction=body.strip(),
-        description=description,
-        needed_tools=needed_tools,
-        dependent_skills=dependent_skills,
-        name=name,
-        source_path=str(path),
-    )
-
-
-def _collect_skill_paths(root: Path) -> List[Path]:
-    """Yield skill markdown files from *root*, supporting both layouts:
-
-    - Flat   : root/skill_name.md
-    - Subdir : root/skill_name/skill_name.md  (canonical MatClaw layout)
-
-    Subdirectory layout takes precedence when both exist for the same stem.
-    """
-    flat: Dict[str, Path] = {}
-    for p in sorted(root.glob("*.md")):
-        flat[p.stem] = p
-
-    subdir: Dict[str, Path] = {}
-    for p in sorted(root.glob("*/*.md")):
-        # Only match canonical pattern: skills/FOO/FOO.md
-        if p.stem == p.parent.name:
-            subdir[p.stem] = p
-
-    merged = {**flat, **subdir}  # subdir wins
-    return list(merged.values())
+def _get_all_skills() -> list:
+    """Return ALL_SKILLS from the top-level skill.py (lazy import)."""
+    from ..skill import ALL_SKILLS  # noqa: PLC0415
+    return ALL_SKILLS
 
 
 def _load_skill_registry() -> Dict[str, Skill]:
-    """Build the merged skill registry (built-ins + workspace overlay).
+    """Return a name → ADK Skill mapping.  Re-scans on every call."""
+    return {s.name: s for s in _get_all_skills()}
 
-    NOT cached with lru_cache so that runtime workspace changes (e.g. a new
-    skill written by the agent) are picked up on the next call.
+
+def list_skill_name_descriptions() -> List[Dict[str, str]]:
+    """Return planner-facing skill summaries (name, description)."""
+    return [
+        {"name": s.name, "description": s.description}
+        for s in _get_all_skills()
+    ]
+
+
+def load_skill_content(skill_name: str) -> dict:
+    """Fetch the full instruction body of a skill by name.
+
+    Call this when a skill's description is not sufficient to inform planning
+    and the full instruction text is needed.
+
+    Args:
+        skill_name: Exact skill name as listed by list_skill_name_descriptions.
+
+    Returns:
+        Dict with ``name``, ``description``, ``needed_tools``, ``dependent_skills``,
+        and ``instruction`` (the full markdown body), or an ``error`` key if not found.
     """
-    registry: Dict[str, Skill] = {}
+    skills = _get_all_skills()
+    skill = next((s for s in skills if s.name == skill_name), None)
+    if skill is None:
+        lowered = skill_name.lower()
+        skill = next((s for s in skills if s.name.lower() == lowered), None)
+    if skill is None:
+        available = ", ".join(sorted(s.name for s in skills)) or "<none>"
+        return {"error": f"Skill '{skill_name}' not found. Available skills: {available}"}
+    metadata = skill.frontmatter.metadata if skill.frontmatter else {}
+    return {
+        "name": skill.name,
+        "description": skill.description,
+        "needed_tools": metadata.get("tools", []),
+        "dependent_skills": metadata.get("dependent_skills", []),
+        "instruction": skill.instructions,
+    }
 
-    # 1. Built-in package skills
-    if _SKILLS_DIR.exists():
-        for md_path in _collect_skill_paths(_SKILLS_DIR):
-            skill = _parse_skill_markdown(md_path)
-            registry[skill.name] = skill
 
-    # 2. Workspace overlay (may override built-ins)
-    try:
-        ws_skills = _workspace_skills_dir()
-        if ws_skills.exists():
-            for md_path in _collect_skill_paths(ws_skills):
-                skill = _parse_skill_markdown(md_path)
-                registry[skill.name] = skill
-    except Exception:
-        pass  # workspace not configured — silently ignore
+# Snapshot at import time for callers that cache it; live data is always
+# available via _load_skill_registry() or _get_all_skills().
+SKILL_LIBRARY: Dict[str, Skill] = _load_skill_registry()
 
-    return registry
 
+# ---------------------------------------------------------------------------
+# Guide system (unchanged)
+# ---------------------------------------------------------------------------
 
 def _parse_guide_markdown(path: Path) -> Guide:
     raw_text = path.read_text(encoding="utf-8")
@@ -195,7 +170,7 @@ def list_guide_metadata() -> List[Dict[str, str]]:
 def load_guide_content(guide_name: str) -> dict:
     """Fetch the full body of a guide by name.
     Call this before building or updating an execution plan when a guide is
-    relevant to the user's goal. 
+    relevant to the user's goal.
     Can be called multiple times before plan building as the agent discovers relevant guides.
 
     Args:
@@ -219,48 +194,6 @@ def load_guide_content(guide_name: str) -> dict:
     }
 
 
-# Snapshot at import time — callers that need fresh data should call
-# _load_skill_registry() directly (e.g. after a workspace skill is created).
-SKILL_LIBRARY = _load_skill_registry()
-
-
-def list_skill_name_descriptions() -> List[Dict[str, str]]:
-    """Return planner-facing skill summaries from the loaded skill library."""
-    return [
-        {
-            "name": skill.name,
-            "description": skill.description,
-        }
-        for skill in SKILL_LIBRARY.values()
-    ]
-
-
-def load_skill_content(skill_name: str) -> dict:
-    """Fetch the full instruction body of a skill by name.
-    Call this when a skill's description is not sufficient to inform planning
-    and the full instruction text is needed.
-
-    Args:
-        skill_name: Exact skill name as listed by list_skill_name_descriptions.
-
-    Returns:
-        Dict with ``name``, ``description``, ``needed_tools``, ``dependent_skills``,
-        and ``instruction`` (the full markdown content), or an ``error`` key if not found.
-    """
-    registry = _load_skill_registry()
-    skill = registry.get(skill_name)
-    if skill is None:
-        available = ", ".join(sorted(registry.keys())) or "<none>"
-        return {"error": f"Skill '{skill_name}' not found. Available skills: {available}"}
-    return {
-        "name": skill.name,
-        "description": skill.description,
-        "needed_tools": skill.needed_tools,
-        "dependent_skills": skill.dependent_skills,
-        "instruction": skill.instruction,
-    }
-
-
 __all__ = [
     "Skill",
     "Guide",
@@ -269,4 +202,5 @@ __all__ = [
     "list_guide_metadata",
     "load_guide_content",
     "SKILL_LIBRARY",
+    "_load_skill_registry",
 ]
