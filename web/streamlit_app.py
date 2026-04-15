@@ -610,13 +610,10 @@ def load_session(session_id):
                 # Add extracted paths to message entry
                 if structure_path:
                     msg_entry["structure_path"] = structure_path
-                    msg_entry["content"] = "**Structure Visualization**"
                 if plot_path:
                     msg_entry["plot_path"] = plot_path
-                    msg_entry["content"] = "**Plot**"
                 if artifact_path:
                     msg_entry["artifact_path"] = artifact_path
-                    msg_entry["content"] = "**Artifact**"
                 messages.append(msg_entry)
 
             # Post-process: embed each functionResponse into its matching functionCall by ID.
@@ -945,7 +942,7 @@ if st.session_state.view_mode == "session":
                             if "response" in fc:
                                 with st.expander(fc["name"], expanded=False, icon="📥"):
                                     st.json(fc["response"])
-                    elif "function_responses" in msg:
+                    if "function_responses" in msg:
                         # Unmatched responses (no paired call in this message)
                         for fr in msg["function_responses"]:
                             with st.expander(fr["name"], expanded=False, icon="📥"):

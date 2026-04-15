@@ -23,17 +23,13 @@ from google.adk.tools.base_tool import BaseTool
 from ...constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 from .trajectory import append_trajectory_entry
 from .planning import validate_plan
-#from .skill import (
-#    list_skill_name_descriptions,
-#    list_guide_metadata,
-#    load_guide_content,
-#    load_skill_content,
-#)
 from ...skill import ALL_SKILLS, ALL_SKILLS_TOOLSET, refresh_skills
 from ...guide import ALL_GUIDES
 from .memory import update_memory, read_memory
 from ...tools.workspace_tools import (
     init_workspace_tool,
+    run_bash,
+    run_python
 )
 from ...tools.util_tools import (
     show_artifact,
@@ -386,6 +382,8 @@ thinking_agent = LlmAgent(
         FunctionTool(update_memory),
         FunctionTool(init_workspace_tool),
         FunctionTool(refresh_skills),
+        FunctionTool(run_python),
+        FunctionTool(run_bash),
         show_artifact,
         show_plot,
         show_structure,
