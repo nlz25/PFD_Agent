@@ -1,10 +1,10 @@
 ---
 name: materials-design
 description: Iterative workflow for materials design through candidate generation, property prediction, screening, and refinement.
-skills: [mattergen, structure_conversion, ase_deepmd, cgcnn_predictor]
+skills: [mattergen-generation, mattergen-finetune, mattergen-evaluation, structure_conversion, mattersim, cgcnn_predictor]
 tags: [materials design, inverse design, iterative, screening, generation]
 ---
-Use this guide when the goal is to discover or optimize crystal materials by repeatedly generating candidates, relaxing them, predicting target properties, and narrowing the search space.
+Use this guide when the goal is to discover or optimize crystal materials by repeatedly generating candidates, predicting target properties, and narrowing the search space.
 
 ## Standard Loop
 
@@ -12,11 +12,11 @@ Use this guide when the goal is to discover or optimize crystal materials by rep
 - Confirm the chemical system, target properties, and screening rules, including thresholds, ranking metrics, batch size, and maximum iterations.
 
 2. Generate candidate structures
-- If a generative model is available, prefer `mattergen` to create a batch of candidate crystals.
+- Prefer using `mattergen` to create a batch of candidate crystals.
 - Always save generated candidates to a dedicated iteration directory and report absolute paths.
 
 3. Relax generated structures
-- Before screening, use `ase_deepmd` to relax generated structures with a suitable DeePMD potential.
+- Before screening, use `mattersim` to relax generated structures.
 - Save relaxed structures to a dedicated output path or directory and report the absolute paths.
 - If relaxation fails for some candidates, report which ones failed and continue with the valid relaxed structures when appropriate.
 
@@ -32,13 +32,11 @@ Use this guide when the goal is to discover or optimize crystal materials by rep
 
 6. Select the next round
 - Keep the top candidates and summarize why they were selected.
-- If no candidate passes the screening rule, broaden the search by adjusting generation conditions, composition ranges, or the number of samples.
-- If the candidate pool collapses to near-duplicates, increase diversity in the next generation round.
+- If the predicted structures and properties do not satisfy the target requirements, use the predicted structure-property data to finetune the MatterGen model for the next iteration.
+- Use the finetuned MatterGen model to generate improved candidates in the next round.
 
-7. Iterate as needed
-- The agent may decide whether to continue iterating based on screening results, diversity, confidence, and remaining budget.
-- Continue the loop when the current candidates are still weak, too similar, or insufficient for the target.
-- Stop when enough strong candidates are found, rankings become stable, or the budget is exhausted.
+7. Evaluation
+- Evaluate the screened structures with the S.U.N criteria, which can be carried out using the `mattergen-evaluation` skill.
 
 8. Optionally validate the final shortlist with DFT
 - After screening, optionally run DFT on a few top shortlisted candidates.
@@ -47,11 +45,10 @@ Use this guide when the goal is to discover or optimize crystal materials by rep
 
 ## Recommended Defaults
 
-- Start with 10 to 100 generated candidates per round, depending on compute budget.
-- Relax candidates before property prediction when a reliable DeePMD potential is available.
+- Start with 10 to 50 generated candidates per round, depending on compute budget.
 - Use a fast property predictor for early screening and save stricter evaluation for the final shortlist.
 - Reserve DFT for optional final validation of the best few candidates rather than for every iteration.
-- Keep a per-iteration summary table with generated, relaxed, and converted structure paths, prediction model, predicted properties, and pass/fail status.
+- Keep a per-iteration summary table with generated structure paths, converted structure paths or directories, prediction model, predicted properties, and pass/fail status.
 
 ## Decision Notes
 
