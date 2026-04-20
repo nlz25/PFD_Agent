@@ -3,8 +3,8 @@ name: quests
 description: Calculate entropy of atomic structure descriptors and select maximally diverse subsets for active learning using the QUEST method.
 metadata:
   tools:
+    - run_skill_script
     - run_bash
-    - run_python_file
   tags:
     - active-learning
     - entropy
@@ -32,9 +32,10 @@ quests --help
 
 Use this script to select the most diverse structures from a candidate pool. It implements an iterative greedy entropy-maximisation algorithm and automatically uses GPU (CUDA via PyTorch) when available, falling back to CPU.
 
-```bash
-python skills/quests/active_learning.py filter-by-entropy <iter_confs> [options]
-```
+Use the `run_skill_script` tool to execute it:
+- `skill_name`: `"quests"`
+- `script_name`: `"active_learning.py"`
+- `args`: the sub-command and flags as a single string
 
 The script prints a JSON object to stdout and exits **0** on success or **1** on error. Always parse the JSON to retrieve the output file path and confirm `"status": "success"`.
 
@@ -57,21 +58,27 @@ The script prints a JSON object to stdout and exits **0** on success or **1** on
 
 **Examples**
 
-```bash
+```
 # Select up to 50 diverse structures from a pool
-python skills/quests/active_learning.py filter-by-entropy candidates.extxyz --max-sel 50
+run_skill_script(
+    skill_name="quests",
+    script_name="active_learning.py",
+    args="filter-by-entropy candidates.extxyz --max-sel 50"
+)
 
 # Select relative to an existing reference/training dataset
-python skills/quests/active_learning.py filter-by-entropy \
-    new_structures.extxyz --reference training_set.extxyz --max-sel 100
+run_skill_script(
+    skill_name="quests",
+    script_name="active_learning.py",
+    args="filter-by-entropy new_structures.extxyz --reference training_set.extxyz --max-sel 100"
+)
 
 # Multiple candidate files, tighter bandwidth
-python skills/quests/active_learning.py filter-by-entropy \
-    pool1.extxyz pool2.extxyz --h 0.01 --cutoff 6.0 --max-sel 200
-
-# Parse the output path from JSON
-result=$(python skills/quests/active_learning.py filter-by-entropy candidates.extxyz --max-sel 50)
-echo "$result" | python -c "import sys,json; d=json.load(sys.stdin); print(d['selected_atoms'])"
+run_skill_script(
+    skill_name="quests",
+    script_name="active_learning.py",
+    args="filter-by-entropy pool1.extxyz pool2.extxyz --h 0.01 --cutoff 6.0 --max-sel 200"
+)
 ```
 
 ---
