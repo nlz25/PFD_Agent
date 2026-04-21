@@ -1,6 +1,6 @@
 agents:
   - name: example_agent
-    description: example agent for demonstration purposes
-    agent_card_url: http://example/.well-known/agent-card.json
+    description: example agent
+    agent_card_url: http://example.com/.well-known/agent-card.json
     enabled: true
     use_legacy: false

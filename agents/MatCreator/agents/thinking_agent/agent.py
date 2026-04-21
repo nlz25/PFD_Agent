@@ -368,7 +368,7 @@ def after_tool_callback(
 # ---------------------------------------------------------------------------
 # MatCreator agent instance
 # ---------------------------------------------------------------------------
-
+from ...tools.remoteagent_tool import load_remote_a2a_agents
 
 thinking_agent = LlmAgent(
     name="MatCreator",
@@ -402,4 +402,5 @@ thinking_agent = LlmAgent(
     ],
     before_agent_callback=before_agent_callback,
     after_tool_callback=after_tool_callback,
+    sub_agents=load_remote_a2a_agents()
 )

@@ -40,7 +40,7 @@ Parameter rule:
 
 ```bash
 ts=$(date +"%Y%m%d%H%M%S")
-outdir="/tmp/mattergen/${ts}.mattergen_generate"
+outdir="mattergen/${ts}.mattergen_generate"
 "${MATTERGEN_ENV}/bin/mattergen-generate" "$outdir" \
   --pretrained-name mattergen_base \
   --batch_size=16 \
@@ -51,7 +51,7 @@ outdir="/tmp/mattergen/${ts}.mattergen_generate"
 
 ```bash
 ts=$(date +"%Y%m%d%H%M%S")
-outdir="/tmp/mattergen/${ts}.mattergen_generate"
+outdir="mattergen/${ts}.mattergen_generate"
 "${MATTERGEN_ENV}/bin/mattergen-generate" "$outdir" \
   --pretrained-name chemical_system_energy_above_hull \
   --batch_size=16 \
@@ -68,7 +68,7 @@ Example for property-conditioned generation:
 
 ```bash
 ts=$(date +"%Y%m%d%H%M%S")
-outdir="/tmp/mattergen/${ts}.mattergen_generate"
+outdir="mattergen/${ts}.mattergen_generate"
 "${MATTERGEN_ENV}/bin/mattergen-generate" "$outdir" \
   --model_path /abs/path/to/model_dir \
   --batch_size=16 \

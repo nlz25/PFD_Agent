@@ -115,7 +115,7 @@ Example:
 
 ```bash
 ts=$(date +"%Y%m%d%H%M%S")
-outdir="/tmp/mattergen/${ts}.mattergen_finetune"
+outdir="mattergen/${ts}.mattergen_finetune"
 mkdir -p "$outdir"
 cd "$workdir"
 

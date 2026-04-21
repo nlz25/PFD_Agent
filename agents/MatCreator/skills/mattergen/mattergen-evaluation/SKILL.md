@@ -23,33 +23,6 @@ Reference:
 
 
 
-## Evaluation With MatterSim on local
-
-Important:
-- The commands below are templates. Replace all placeholder paths with real absolute paths before execution.
-
-### Default MatterSim evaluation
-
-First download the reference dataset, then evaluate the generated structures:
-
-```bash
-git lfs pull -I data-release/alex-mp/reference_MP2020correction.gz --exclude=""
-
-ts=$(date +"%Y%m%d%H%M%S")
-workdir="matg/${ts}.mattergen_evaluation"
-mkdir -p "$workdir"
-cd "$workdir"
-
-"${MATTERGEN_ENV}/bin/mattergen-evaluate" \
-  --structures_path=/abs/path/to/generated_results \ 
-  --save_as=/abs/path/to/generated_results/metrics.json \
-  --save_detailed_as=/abs/path/to/generated_results/detailed_metrics.json \
-  --structures_output_path=/abs/path/to/generated_results/relaxed_structures.extxyz
-```
-
-
-
-
 
 ## Evaluation With MatterSim on Bohrium
 
