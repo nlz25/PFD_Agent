@@ -57,7 +57,7 @@ python predict.py <model_path> <dataset_dir>
 Examples:
 
 ```bash
-source /home/dejie_zhao/softutils/cgcnn/.venv/bin/activate
+source "$cgcnn_env/bin/activate"
 cd "${CGCNN_ROOT}"
 python predict.py pre-trained/formation-energy-per-atom.pth.tar dataset_dir
 ```
