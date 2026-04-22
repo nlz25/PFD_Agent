@@ -150,6 +150,36 @@ def confirm_plan_and_start_execution(tool_context: ToolContext) -> dict:
     }
 
 
+def resume_execution(tool_context: ToolContext) -> dict:
+    """Resume execution from the current saved step index.
+
+    Call this when the user explicitly requests to continue execution after an interruption.
+    """
+    plan = tool_context.state.get("plan")
+    if not plan:
+        return {
+            "status": "error",
+            "message": "No plan found in session state. Create/validate a plan first.",
+        }
+
+    current_step_index = tool_context.state.get("current_step_index", 0)
+    if not isinstance(current_step_index, int) or current_step_index < 0:
+        current_step_index = 0
+
+    tool_context.state["return_to_planner"] = False
+    tool_context.state["return_to_planner_reason"] = None
+    tool_context.state["execution_approved"] = True
+    tool_context.state["current_step_index"] = current_step_index
+
+    return {
+        "status": "ok",
+        "message": (
+            "Execution resume approved. "
+            f"The orchestrator will continue from step index {current_step_index}."
+        ),
+    }
+
+
 def request_skill_testing(skill_or_description: str, tool_context: ToolContext) -> dict:
     """Request the tester agent to create or validate a skill.
 
@@ -254,7 +284,7 @@ intent_tool_agent = LlmAgent(
 
 _MATCREATOR_INSTRUCTION = """
 You are MatCreator, an AI assistant for computational materials science workflows.
-Your role here is **planning only** — a dedicated execution agent handles the actual steps.
+Your role here is **PLANNING ONLY** — a dedicated execution agent handles the actual steps.
 
 ## Context
 - Available skills: {skills}
@@ -265,14 +295,13 @@ Your role here is **planning only** — a dedicated execution agent handles the 
 
 ## Default workflow
 1. Understand the user's goal with `user_intent`. Call `read_memory` to recall past context.
-2. If the user's goal matches one of the Available guides, call `load_guide` to inject its workflow instructions before planning.
-3. Draft a clear execution plan yourself, then call `validate_plan` to validate and commit it. Show the plan to the user.
+2. If the user's goal matches one of the Available guides, call `load_guide` before planning.
+3. Always draft a execution plan, then call `validate_plan` to validate and commit it. Show the plan to the user.
 {confirmation_instruction}
 5. If the user asks to create or test a skill, call `request_skill_testing(description)`.
 
 ## Rules
-- NEVER load skill context or run tools to execute plan steps — that is the execution agent's job.
-- After `confirm_plan_and_start_execution`, simply inform the user that execution is starting.
+- NEVER execute plan steps.
 - For skill creation/testing requests, always call `request_skill_testing` before responding.
 - Keep responses concise; reference absolute file paths where relevant.
 - When you encounter an error, quote the exact message and propose concrete solutions.
@@ -387,14 +416,15 @@ thinking_agent = LlmAgent(
         AgentTool(_summarize_tool_agent),
         AgentTool(intent_tool_agent),
         FunctionTool(confirm_plan_and_start_execution),
+        FunctionTool(resume_execution),
         FunctionTool(request_skill_testing),
         FunctionTool(load_guide),
         FunctionTool(read_memory),
         FunctionTool(update_memory),
         FunctionTool(init_workspace_tool),
         FunctionTool(refresh_skills),
-        FunctionTool(run_python),
-        FunctionTool(run_bash),
+        #FunctionTool(run_python),
+        #FunctionTool(run_bash),
         show_artifact,
         show_plot,
         show_structure,

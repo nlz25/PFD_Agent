@@ -150,10 +150,14 @@ class PlanningExecutionOrchestrator(BaseAgent):
                 if not interrupted:
                     logger.info("[orchestrator] all %d steps complete", total_steps)
 
-                # Reset execution state regardless of how the inner loop ended
+                # Reset execution flags; only reset step index after full completion.
                 state["execution_approved"] = False
-                state["current_step_index"] = 0
                 state["current_step"] = None
+                if not interrupted:
+                    state["current_step_index"] = 0
+                else:
+                    # Preserve the index so a resume command can continue from here.
+                    state["current_step_index"] = current_step_index
                 continue  # loop back to planner
 
             # ── No flag set — planner handled the turn conversationally ───────
