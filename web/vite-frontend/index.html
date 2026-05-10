@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MatCreator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script type="module" src="/src/main.js"></script>
+  </head>
+  <body>
+    <div class="page">
+      <header class="topbar">
+        <div class="brand">
+          <div class="dot"></div>
+          <div>
+            <div class="brand-title">MatCreator</div>
+            <div class="brand-sub">Plan · Execute · Review</div>
+          </div>
+        </div>
+        <div class="session-chips">
+          <span class="chip">User: <span id="user-display">—</span>
+            <button class="ghost" id="edit-user" style="padding:0 6px;font-size:11px" title="Change user">✎</button>
+          </span>
+          <span class="chip">Session: <span id="session-id">-</span></span>
+          <button class="ghost" id="reset-session">New Session</button>
+        </div>
+      </header>
+
+      <main class="app-grid">
+
+        <!-- Left: Agent execution graph + node detail -->
+        <div class="graph-column">
+          <section class="card graph-card">
+            <div class="card-header">
+              <div>
+                <div class="eyebrow">Live</div>
+                <h2>Agent Graph</h2>
+              </div>
+              <span class="graph-status" id="graph-status">idle</span>
+            </div>
+            <div id="agent-graph" class="graph-canvas"></div>
+          </section>
+          <div class="graph-detail hidden" id="graph-detail">
+            <div class="detail-header">
+              <span id="detail-label">Node</span>
+              <span class="badge" id="detail-status">—</span>
+            </div>
+            <div class="detail-body">
+              <div class="detail-row" id="detail-summary-row">
+                <span class="detail-key">Summary</span>
+                <span class="detail-val" id="detail-summary">—</span>
+              </div>
+              <div class="detail-row" id="detail-timing-row">
+                <span class="detail-key">Time</span>
+                <span class="detail-val" id="detail-timing">—</span>
+              </div>
+              <div class="detail-row" id="detail-artifacts-row">
+                <span class="detail-key">Artifacts</span>
+                <ul class="detail-artifacts" id="detail-artifacts"></ul>
+              </div>
+              <div class="detail-section" id="detail-input-row">
+                <details>
+                  <summary class="detail-key">Input</summary>
+                  <pre class="json-block" id="detail-input"></pre>
+                </details>
+              </div>
+              <div class="detail-section" id="detail-toolcalls-row">
+                <details>
+                  <summary class="detail-key">Tool Calls (<span id="detail-toolcalls-count">0</span>)</summary>
+                  <div id="detail-toolcalls"></div>
+                </details>
+              </div>
+              <div class="detail-section" id="detail-conversation-row">
+                <details>
+                  <summary class="detail-key">Conversation Transcript</summary>
+                  <div id="detail-conversation"></div>
+                </details>
+              </div>
+            </div>
+          </div>
+
+          <div class="structure-viewer hidden" id="structure-viewer">
+            <div class="structure-viewer-header">
+              <div>
+                <div class="eyebrow">Structure</div>
+                <div id="sv-meta"></div>
+              </div>
+              <button class="ghost" id="sv-close" style="font-size:11px;padding:4px 8px">✕</button>
+            </div>
+            <div id="sv-canvas" class="sv-canvas"></div>
+          </div>
+        </div>
+
+        <!-- Centre: Chat -->
+        <section class="card chat-card">
+          <div class="card-header">
+            <div>
+              <div class="eyebrow">Conversation</div>
+              <h2>Orchestration Chat</h2>
+            </div>
+          </div>
+          <div class="chat-area" id="chat-area">
+            <div class="message agent-message">
+              <div class="markdown-content">
+                Welcome to MatCreator! Ask for a plan, request execution, or review results. Messages stream from the backend.
+              </div>
+            </div>
+          </div>
+          <div class="input-area">
+            <div class="input-container">
+              <textarea class="text-input" id="text-input" placeholder="Ask for a plan, run, or assessment…" rows="1"></textarea>
+              <button class="send-btn" id="send-btn" title="Send">➜</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Right: Controls + Sessions + Artifacts -->
+        <aside class="card side-panel">
+          <div class="panel-block">
+            <div class="block-header">Workflow Controls</div>
+            <div class="actions">
+              <button class="pill" data-quick="yes">Approve Plan</button>
+              <button class="pill" data-quick="replan">Request Replan</button>
+              <button class="pill" data-quick="continue">Continue</button>
+            </div>
+          </div>
+
+          <details class="panel-block" open>
+            <summary class="block-header">Sessions
+              <button class="ghost" id="refresh-sessions" style="font-size:11px" title="Refresh session list">↺</button>
+            </summary>
+            <div class="panel-block-body">
+              <ul class="artifact-list" id="session-list">
+                <li class="empty">Sign in to see sessions</li>
+              </ul>
+            </div>
+          </details>
+
+          <details class="panel-block" open>
+            <summary class="block-header">Artifacts</summary>
+            <div class="panel-block-body">
+              <ul class="artifact-list" id="artifact-list">
+                <li class="empty">No artifacts yet</li>
+              </ul>
+            </div>
+          </details>
+
+          <details class="panel-block" open>
+            <summary class="block-header">Structures</summary>
+            <div class="panel-block-body">
+              <p class="hint">Click a structure to view its contents.</p>
+              <ul class="artifact-list" id="structure-list">
+                <li class="empty">No structures yet</li>
+              </ul>
+            </div>
+          </details>
+        </aside>
+
+      </main>
+    </div>
+
+    <!-- Login overlay -->
+    <div id="login-modal" class="login-overlay">
+      <div class="login-card">
+        <div class="brand-title" style="font-size:1.4rem">MatCreator</div>
+        <p style="color:var(--muted);margin:0;font-size:0.875rem">Enter your username to continue</p>
+        <input id="login-input" class="text-input" placeholder="Username" style="width:100%;box-sizing:border-box" />
+        <button id="login-submit" class="send-btn" style="width:100%;justify-content:center">Enter →</button>
+      </div>
+    </div>
+
+  </body>
+</html>
