@@ -486,6 +486,47 @@ function pathToApiUrl(path) {
 // Chat helpers
 // ---------------------------------------------------------------------------
 
+const AGENT_AVATAR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="rgba(125,211,252,0.9)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3" y="8" width="18" height="11" rx="2"/>
+  <path d="M8 8V6a4 4 0 0 1 8 0v2"/>
+  <circle cx="9" cy="14" r="1" fill="rgba(125,211,252,0.9)" stroke="none"/>
+  <circle cx="15" cy="14" r="1" fill="rgba(125,211,252,0.9)" stroke="none"/>
+  <path d="M7 19v2M17 19v2"/>
+</svg>`;
+
+const USER_AVATAR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="rgba(168,85,247,0.9)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="12" cy="8" r="4"/>
+  <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+</svg>`;
+
+function getUserAvatar() {
+  return localStorage.getItem("user-avatar-url") || null;
+}
+
+function setUserAvatar(dataUrl) {
+  localStorage.setItem("user-avatar-url", dataUrl);
+  document.querySelectorAll(".user-avatar").forEach(applyUserAvatarToEl);
+}
+
+function applyUserAvatarToEl(el) {
+  const url = getUserAvatar();
+  el.innerHTML = url ? `<img src="${url}" alt="User">` : USER_AVATAR_SVG;
+}
+
+function createAgentAvatarEl() {
+  const el = document.createElement("div");
+  el.className = "message-avatar agent-avatar";
+  el.innerHTML = AGENT_AVATAR_SVG;
+  return el;
+}
+
+function createUserAvatarEl() {
+  const el = document.createElement("div");
+  el.className = "message-avatar user-avatar";
+  applyUserAvatarToEl(el);
+  return el;
+}
+
 function scrollToBottom() {
   chatArea.scrollTop = chatArea.scrollHeight;
 }
@@ -493,10 +534,18 @@ function scrollToBottom() {
 function addMessage(role, content) {
   const div = document.createElement("div");
   div.className = `message ${role}-message`;
+
+  const avatar = role === "agent" ? createAgentAvatarEl() : createUserAvatarEl();
+  div.appendChild(avatar);
+
+  const bubble = document.createElement("div");
+  bubble.className = "message-bubble";
   const inner = document.createElement("div");
   inner.className = "markdown-content";
   inner.innerHTML = marked.parse(content || "");
-  div.appendChild(inner);
+  bubble.appendChild(inner);
+  div.appendChild(bubble);
+
   chatArea.appendChild(div);
   scrollToBottom();
   return div;
@@ -576,9 +625,13 @@ function renderTimeline(container, timeline) {
 function addAgentTimelineMessage(timeline) {
   const outer = document.createElement("div");
   outer.className = "message agent-message";
+  outer.appendChild(createAgentAvatarEl());
+  const bubble = document.createElement("div");
+  bubble.className = "message-bubble";
   const inner = document.createElement("div");
   inner.className = "timeline-container";
-  outer.appendChild(inner);
+  bubble.appendChild(inner);
+  outer.appendChild(bubble);
   chatArea.appendChild(outer);
   renderTimeline(inner, timeline);
   return inner;
@@ -999,6 +1052,25 @@ textInput.addEventListener("keydown", (e) => {
     sendMessage(textInput.value);
   }
 });
+
+// Avatar upload
+const avatarUploadInput = document.getElementById("avatar-upload-input");
+const avatarUploadBtn = document.getElementById("avatar-upload-btn");
+if (avatarUploadBtn && avatarUploadInput) {
+  applyUserAvatarToEl(avatarUploadBtn);
+  avatarUploadBtn.addEventListener("click", () => avatarUploadInput.click());
+  avatarUploadInput.addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setUserAvatar(ev.target.result);
+      applyUserAvatarToEl(avatarUploadBtn);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  });
+}
 
 Array.from(document.querySelectorAll("[data-quick]"))
   .forEach((btn) => btn.addEventListener("click", () => sendMessage(btn.dataset.quick || "")));

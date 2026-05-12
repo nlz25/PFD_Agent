@@ -17,8 +17,7 @@ from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.function_tool import FunctionTool
 from google.adk.skills import models
-from google.adk.tools import skill_toolset
-from ...skill import ALL_SKILLS, ALL_SKILLS_TOOLSET, refresh_skills
+from ...skill import ALL_SKILLS, ALL_SKILLS_TOOLSET, MatCreatorSkillToolset, refresh_skills
 from ...constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 from ...tools.workspace_tools import (
     create_skill,
@@ -134,9 +133,7 @@ skill_creator = models.Skill(
     ),
 )
 
-skill_creator_tool = skill_toolset.SkillToolset(
-    skills=[skill_creator]
-    )
+skill_creator_tool = MatCreatorSkillToolset([skill_creator])
 
 
 
@@ -156,7 +153,6 @@ tester_agent = LlmAgent(
         FunctionTool(create_skill),
         FunctionTool(write_workspace_file),
         FunctionTool(read_workspace_file),
-        #FunctionTool(list_workspace_skills),
         FunctionTool(run_python),
         FunctionTool(run_bash),
         skill_creator_tool,

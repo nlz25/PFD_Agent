@@ -26,7 +26,7 @@ def _now() -> str:
 async def run_step_executor(
     step_number: int,
     action: str,
-    skill_instruction: str,
+    skill_name: str,
     workspace_dir: str,
     prior_context: Optional[str] = None,
     *,
@@ -57,7 +57,7 @@ async def run_step_executor(
     step_input = StepExecutorInput(
         step_number=step_number,
         action=action,
-        skill_instruction=skill_instruction,
+        skill_name=skill_name,
         workspace_dir=str(step_workspace),
         prior_context=prior_context,
     )
@@ -66,13 +66,13 @@ async def run_step_executor(
         parts=[types.Part.from_text(text=step_input.model_dump_json(exclude_none=True))],
     )
 
-    # Log input parameters (truncate skill_instruction to keep log compact)
+    # Log input parameters
     graph.log_node_input(step_id, {
         "step_number": step_number,
         "action": action,
         "workspace_dir": str(step_workspace),
         "prior_context": prior_context,
-        "skill_instruction_preview": skill_instruction[:300],
+        "skill_name": skill_name,
     })
 
     # Create runner with isolated session (mirrors AgentTool)

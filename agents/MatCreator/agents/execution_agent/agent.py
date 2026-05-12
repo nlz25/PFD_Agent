@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import os
 
@@ -11,7 +10,6 @@ from google.adk.tools.function_tool import FunctionTool
 from google.adk.tools.tool_context import ToolContext
 
 from ...constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
-from ...skill import ALL_SKILLS
 from ...workspace import get_session_workdir
 from ..thinking_agent.summarize import validate_summarize
 from .step_executor_runner import run_step_executor
@@ -36,15 +34,12 @@ You are the MatCreator Execution Orchestrator. You manage the full execution of 
 - Workspace directory: {workspace_dir}
 - Prior trajectory: {summarize}
 
-## Available skill instructions
-{skill_map}
-
 ## Protocol
 1. Identify all plan steps where step_number > {current_step_index}.
 2. For each pending step, call `run_step_executor` with:
    - `step_number`: the step's number from the plan
    - `action`: the step's action text
-   - `skill_instruction`: the instruction for the step's skill (from the skill map above)
+   - `skill_name`: the name of the skill from the plan step
    - `workspace_dir`: the workspace directory above
    - `prior_context`: a brief summary of completed steps (from trajectory, if any)
 3. **Parallelize independent steps**: if consecutive pending steps use different skills
@@ -58,7 +53,6 @@ You are the MatCreator Execution Orchestrator. You manage the full execution of 
 5. Continue until all steps complete or `to_planner` is called.
 
 ## Rules
-- Use the skill map above for skill instructions. Do NOT call any skill-loading tool.
 - NEVER run code directly — all execution must go through `run_step_executor`.
 - Always use absolute file paths in artifact lists.
 """
@@ -102,7 +96,7 @@ def set_current_step_index(step_index: int, tool_context: ToolContext) -> dict:
 
 
 def _exec_before_agent_callback(callback_context: CallbackContext) -> None:
-    """Initialise execution-phase state and inject skill map before the LLM runs."""
+    """Initialise execution-phase state before the LLM runs."""
     state = callback_context.state
 
     for key, default in [
@@ -120,23 +114,6 @@ def _exec_before_agent_callback(callback_context: CallbackContext) -> None:
     # Workspace directory (session_id is set by PlanningExecutionOrchestrator on first run)
     session_id = state.get("session_id", "default")
     state["workspace_dir"] = str(get_session_workdir(session_id))
-
-    # Pre-resolve skill instructions for all skills referenced in the current plan
-    plan = state.get("plan") or {}
-    if isinstance(plan, str):
-        try:
-            plan = json.loads(plan)
-        except json.JSONDecodeError:
-            plan = {}
-    steps = plan.get("steps", []) if isinstance(plan, dict) else []
-    skill_names = {step.get("skill") for step in steps if step.get("skill")}
-
-    sections = [
-        f"### {s.name}\n{s.instructions}"
-        for s in ALL_SKILLS
-        if s.name in skill_names
-    ]
-    state["skill_map"] = "\n\n---\n\n".join(sections) if sections else "(no skills resolved)"
 
 
 # ---------------------------------------------------------------------------

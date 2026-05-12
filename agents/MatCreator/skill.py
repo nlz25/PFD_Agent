@@ -9,7 +9,9 @@ the guide system unchanged.
 
 from google.adk.skills import load_skill_from_dir
 from google.adk.tools import skill_toolset
+from google.adk.tools.function_tool import FunctionTool
 from .workspace import workspace_skills_dir
+from .tools.workspace_tools import list_workspace_skills, run_skill_script
 from pathlib import Path
 
 
@@ -43,9 +45,22 @@ def load_skills() -> list:
 
 ALL_SKILLS = load_skills()
 
-ALL_SKILLS_TOOLSET = skill_toolset.SkillToolset(
-    skills=ALL_SKILLS
-    )
+
+class MatCreatorSkillToolset(skill_toolset.SkillToolset):
+    """SkillToolset with workspace-aware list and run tools."""
+
+    def __init__(self, skills: list):
+        super().__init__(skills=skills)
+        kept = [t for t in self._tools
+                if t.__class__.__name__ in ('LoadSkillTool', 'LoadSkillResourceTool')]
+        self._tools = [
+            FunctionTool(list_workspace_skills),
+            *kept,
+            FunctionTool(run_skill_script),
+        ]
+
+
+ALL_SKILLS_TOOLSET = MatCreatorSkillToolset(ALL_SKILLS)
 
 
 def refresh_skills() -> dict:

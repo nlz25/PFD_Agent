@@ -100,11 +100,26 @@
               <div class="eyebrow">Conversation</div>
               <h2>Orchestration Chat</h2>
             </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div id="avatar-upload-btn" class="message-avatar user-avatar avatar-upload-btn" title="Upload your avatar" style="cursor:pointer;"></div>
+              <input type="file" id="avatar-upload-input" accept="image/*" style="display:none">
+            </div>
           </div>
           <div class="chat-area" id="chat-area">
             <div class="message agent-message">
-              <div class="markdown-content">
-                Welcome to MatCreator! Ask for a plan, request execution, or review results. Messages stream from the backend.
+              <div class="message-avatar agent-avatar">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="rgba(125,211,252,0.9)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="8" width="18" height="11" rx="2"/>
+                  <path d="M8 8V6a4 4 0 0 1 8 0v2"/>
+                  <circle cx="9" cy="14" r="1" fill="rgba(125,211,252,0.9)" stroke="none"/>
+                  <circle cx="15" cy="14" r="1" fill="rgba(125,211,252,0.9)" stroke="none"/>
+                  <path d="M7 19v2M17 19v2"/>
+                </svg>
+              </div>
+              <div class="message-bubble">
+                <div class="markdown-content">
+                  Welcome to MatCreator! Ask for a plan, request execution, or review results. Messages stream from the backend.
+                </div>
               </div>
             </div>
           </div>

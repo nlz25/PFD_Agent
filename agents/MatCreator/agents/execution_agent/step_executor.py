@@ -11,9 +11,10 @@ from google.adk.tools.tool_context import ToolContext
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from ...constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+from ...skill import ALL_SKILLS_TOOLSET
 from ...tools.remoteagent_tool import load_remote_a2a_agents
 from ...tools.util_tools import show_artifact, show_plot, show_structure
-from ...tools.workspace_tools import run_bash, run_python, run_skill_script
+from ...tools.workspace_tools import run_bash, run_python
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ _model_base_url = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
 class StepExecutorInput(BaseModel):
     step_number: int = Field(description="1-based index of this step in the plan")
     action: str = Field(description="Action description from the plan step")
-    skill_instruction: str = Field(description="Full skill instruction (SKILL.md content)")
+    skill_name: str = Field(description="Name of the skill to use for this step")
     workspace_dir: str = Field(description="Absolute path to the session workspace directory")
     prior_context: Optional[str] = Field(
         default=None,
@@ -66,8 +67,9 @@ _STEP_EXECUTOR_INSTRUCTION = """
 You are a focused step executor. Execute the single plan step provided in your input.
 
 ## Your task
-Execute the `action` using the `skill_instruction` as your guide.
-All provided tools are available. Follow the skill instruction precisely.
+1. Call `load_skill` with the provided `skill_name` to retrieve the skill instructions.
+2. Execute the `action` following those instructions precisely.
+All provided tools are available.
 
 ## Reporting results (REQUIRED)
 When done, call `submit_step_result` with:
@@ -141,7 +143,7 @@ step_executor_agent = LlmAgent(
     ),
     description=(
         "Executes a single plan step in an isolated session. "
-        "Receives structured input with action and skill instruction; returns a structured result."
+        "Receives structured input with action and skill name; loads skill instructions autonomously."
     ),
     instruction=_STEP_EXECUTOR_INSTRUCTION,
     input_schema=StepExecutorInput,
@@ -149,7 +151,7 @@ step_executor_agent = LlmAgent(
         FunctionTool(submit_step_result),
         FunctionTool(run_python),
         FunctionTool(run_bash),
-        FunctionTool(run_skill_script),
+        ALL_SKILLS_TOOLSET,
         FunctionTool(show_plot),
         FunctionTool(show_structure),
         FunctionTool(show_artifact),
