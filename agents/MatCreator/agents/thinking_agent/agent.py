@@ -13,9 +13,10 @@ from ...constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 from .planning import validate_plan
 from .intent import validate_intent
 from .summarize import validate_summarize
+from .session_summary import write_session_summary
 from ...skill import ALL_SKILLS, ALL_SKILLS_TOOLSET, refresh_skills
 from ...guide import ALL_GUIDES
-from .memory import update_memory, read_memory
+from .memory import query_knowledge_graph, save_to_knowledge_graph, update_memory, read_memory
 from ...tools.workspace_tools import (
     init_workspace_tool,
     run_bash,
@@ -204,11 +205,18 @@ Your role here is **PLANNING ONLY** — a dedicated execution agent handles the 
 - Summarize: {summarize}
 
 ## Default workflow
-1. Determine the user's goal, then call `validate_intent` with your interpretation. Call `read_memory` to recall past context.
+1. Determine the user's goal, then call `validate_intent` with your interpretation.
+   Call `query_knowledge_graph` with the user's goal to retrieve relevant past knowledge,
+   lessons, and related skills. Only fall back to `read_memory` when a broad context dump
+   is explicitly needed.
 2. If the user's goal matches one of the Available guides, call `load_guide` before planning.
 3. Always draft an execution plan, then call `validate_plan` to validate and commit it. Show the plan to the user in Markdown table format.
 {confirmation_instruction}
 5. If the user asks to create or test a skill, call `request_skill_testing(description)`.
+6. After completing a step, use `save_to_knowledge_graph` to persist key lessons or findings.
+7. Once execution has fully completed and results are available, call `write_session_summary`
+   with the global narrative: original goal, approach rationale, key decisions, lessons
+   learned, any failed attempts, and the overall outcome.
 
 ## Rules
 - NEVER execute plan steps.
@@ -279,10 +287,13 @@ thinking_agent = LlmAgent(
         FunctionTool(validate_plan),
         FunctionTool(validate_intent),
         FunctionTool(validate_summarize),
+        FunctionTool(write_session_summary),
         FunctionTool(confirm_plan_and_start_execution),
         FunctionTool(resume_execution),
         FunctionTool(request_skill_testing),
         FunctionTool(load_guide),
+        FunctionTool(query_knowledge_graph),
+        FunctionTool(save_to_knowledge_graph),
         FunctionTool(read_memory),
         FunctionTool(update_memory),
         FunctionTool(init_workspace_tool),

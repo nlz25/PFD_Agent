@@ -33,6 +33,9 @@ from pydantic import Field
 
 from ...workspace import init_session_workdir
 from ..graph_logger import AgentGraphLogger
+from ...knowledge.extractor import run_knowledge_extractor
+from ...knowledge.synthesizer import run_knowledge_synthesizer
+from ...knowledge.kg_state import increment_exec_count, record_synthesizer_run
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +156,20 @@ class PlanningExecutionOrchestrator(BaseAgent):
                     logger.info("[orchestrator] all %d steps complete", total_steps)
                     graph.log_node_complete(exec_id, "success")
                     state["current_step_index"] = 0
+
+                    # Extract knowledge from the completed session
+                    try:
+                        extraction_result = run_knowledge_extractor(ctx.session.id)
+                        logger.info("[orchestrator] knowledge extractor: %s", extraction_result.get("message"))
+
+                        # Run synthesizer every 10 completed executions (counted across sessions)
+                        exec_count = increment_exec_count()
+                        if exec_count % 10 == 0:
+                            synth_result = run_knowledge_synthesizer()
+                            record_synthesizer_run()
+                            logger.info("[orchestrator] knowledge synthesizer: %s", synth_result.get("message"))
+                    except Exception as _kg_exc:
+                        logger.warning("[orchestrator] knowledge extraction failed: %s", _kg_exc)
 
                 state["execution_approved"] = False
                 state["current_step"] = None

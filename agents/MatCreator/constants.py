@@ -22,6 +22,7 @@ EXECUTION_COMPACT_EVERY_EVENTS: int = int(os.environ.get("EXECUTION_COMPACT_EVER
 
 
 _AGENT_PATH = _script_dir
+_ADK_DIR = _script_dir / ".adk"          # ADK internal storage (session.db, knowledge_graph.db)
 _KNOWLEDGE_PATH= _script_dir / "knowledge"
 _SKILLS_DIR = _script_dir / "skills"
 _GUIDES_DIR = _script_dir/ "guides"
