@@ -4,6 +4,7 @@ import asyncio
 import logging
 from contextlib import aclosing
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 from google.adk.runners import Runner
@@ -243,6 +244,7 @@ async def run_step_executor(
         if not k.startswith("_adk")
     }
     state_dict["workspace_dir"] = str(step_workspace)
+    state_dict["_graph_exec_node_id"] = step_id
 
     session = await runner.session_service.create_session(
         app_name=child_app_name,
@@ -321,3 +323,186 @@ async def run_step_executor(
     graph.log_node_complete(step_id, "needs_replanning")
     clear_step_cancellation(session_id, step_number)
     return result.model_dump()
+
+
+MAX_RECURSION_DEPTH = 3
+
+
+async def _run_single_sub_step(
+    sub_step_index: int,
+    action: str,
+    suggested_skills: list[str],
+    prior_context: Optional[str],
+    parent_workspace: str,
+    parent_step_id: str,
+    tool_context: ToolContext,
+    recursion_depth: int,
+    graph: AgentGraphLogger,
+) -> dict:
+    session_id = tool_context.state.get("session_id", "default")
+
+    sub_workspace = Path(parent_workspace) / f"sub_{sub_step_index}"
+    sub_workspace.mkdir(parents=True, exist_ok=True)
+
+    step_id = f"{parent_step_id}__sub_{sub_step_index}"
+    graph.log_node_start(step_id, "step", f"Sub-step {sub_step_index}", parent_step_id)
+
+    step_input = StepExecutorInput(
+        step_number=sub_step_index,
+        action=action,
+        suggested_skills=suggested_skills,
+        workspace_dir=str(sub_workspace),
+        prior_context=prior_context,
+    )
+    content = types.Content(
+        role="user",
+        parts=[types.Part.from_text(text=step_input.model_dump_json(exclude_none=True))],
+    )
+
+    graph.log_node_input(step_id, {
+        "sub_step_index": sub_step_index,
+        "action": action,
+        "workspace_dir": str(sub_workspace),
+        "suggested_skills": suggested_skills,
+    })
+
+    if is_cancellation_requested(session_id):
+        reason = get_cancellation_reason(session_id) or "user_requested"
+        graph.log_node_complete(step_id, "failed", summary=f"Cancelled before start: {reason}")
+        return {"status": "cancelled", "message": f"Sub-step {sub_step_index} cancelled before start."}
+
+    invocation_context = tool_context._invocation_context
+    child_app_name = (
+        invocation_context.app_name if invocation_context else step_executor_agent.name
+    )
+    runner = Runner(
+        app_name=child_app_name,
+        agent=step_executor_agent,
+        artifact_service=ForwardingArtifactService(tool_context),
+        session_service=InMemorySessionService(),
+        memory_service=InMemoryMemoryService(),
+        credential_service=invocation_context.credential_service,
+    )
+
+    state_dict = {
+        k: v
+        for k, v in tool_context.state.to_dict().items()
+        if not k.startswith("_adk")
+    }
+    state_dict["workspace_dir"] = str(sub_workspace)
+    state_dict["recursion_depth"] = recursion_depth + 1
+    state_dict["_graph_exec_node_id"] = step_id
+
+    session = await runner.session_service.create_session(
+        app_name=child_app_name,
+        user_id=invocation_context.user_id,
+        state=state_dict,
+    )
+
+    inner_task = asyncio.create_task(
+        _stream_step_events(runner, session, content, step_id, tool_context, graph)
+    )
+    watcher = asyncio.create_task(
+        _watch_for_cancellation(inner_task, session_id, sub_step_index)
+    )
+
+    cancelled = False
+    step_state_delta: dict = {}
+    plot_paths: list[str] = []
+    try:
+        step_state_delta, plot_paths = await inner_task
+    except asyncio.CancelledError:
+        cancelled = True
+    finally:
+        if not watcher.done():
+            watcher.cancel()
+        await asyncio.gather(watcher, return_exceptions=True)
+        try:
+            await asyncio.wait_for(runner.close(), timeout=5.0)
+        except Exception:
+            pass
+
+    if cancelled:
+        reason = get_cancellation_reason(session_id) or "user_requested"
+        graph.log_node_complete(step_id, "failed", summary=f"Cancelled mid-step ({reason})")
+        return {"status": "cancelled", "message": f"Sub-step {sub_step_index} cancelled ({reason})."}
+
+    if step_state_delta:
+        graph.log_state_delta(step_id, step_state_delta)
+
+    step_result_data = step_state_delta.get("_step_result")
+    if step_result_data:
+        result = StepExecutorResult.model_validate(step_result_data)
+        graph.log_node_complete(
+            step_id, result.status,
+            summary=result.concise_summary,
+            artifacts=result.artifacts,
+        )
+        payload = result.model_dump(exclude_none=True)
+        if plot_paths:
+            payload["plot_paths"] = plot_paths
+            payload["plot_path"] = plot_paths[0]
+        return payload
+
+    logger.warning("[step_executor_runner] sub-step %d: submit_step_result was never called", sub_step_index)
+    result = StepExecutorResult(
+        status="needs_replanning",
+        replan_reason="sub-step executor did not call submit_step_result — no result captured",
+    )
+    graph.log_node_complete(step_id, "needs_replanning")
+    return result.model_dump()
+
+
+async def _run_sub_steps_impl(
+    sub_steps: list[dict],
+    *,
+    tool_context: ToolContext,
+) -> dict:
+    """Spawn child step executors for sub-steps. Called from run_sub_steps in step_executor.py."""
+    recursion_depth = tool_context.state.get("recursion_depth", 0)
+    if recursion_depth >= MAX_RECURSION_DEPTH:
+        return {
+            "status": "error",
+            "message": (
+                f"Maximum recursion depth ({MAX_RECURSION_DEPTH}) reached. "
+                "Execute this action directly or call submit_step_result with needs_replanning."
+            ),
+        }
+
+    if not sub_steps:
+        return {"status": "error", "message": "sub_steps list is empty."}
+
+    session_id = tool_context.state.get("session_id", "default")
+    parent_workspace = tool_context.state.get("workspace_dir", "")
+    parent_step_id = tool_context.state.get("_graph_exec_node_id", "step_executor")
+    graph = AgentGraphLogger(session_id)
+
+    tasks = [
+        _run_single_sub_step(
+            sub_step_index=i + 1,
+            action=sub.get("action", ""),
+            suggested_skills=sub.get("suggested_skills", []),
+            prior_context=sub.get("prior_context"),
+            parent_workspace=parent_workspace,
+            parent_step_id=parent_step_id,
+            tool_context=tool_context,
+            recursion_depth=recursion_depth,
+            graph=graph,
+        )
+        for i, sub in enumerate(sub_steps)
+    ]
+
+    raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    sub_results = []
+    for i, result in enumerate(raw_results):
+        if isinstance(result, Exception):
+            sub_results.append({
+                "sub_step_index": i + 1,
+                "status": "needs_replanning",
+                "replan_reason": f"Sub-step raised an exception: {result}",
+            })
+        else:
+            sub_results.append({"sub_step_index": i + 1, **result})
+
+    return {"sub_results": sub_results}

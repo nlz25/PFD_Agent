@@ -69,8 +69,15 @@ You are a focused step executor. Execute the single plan step provided in your i
 ## Your task
 1. Review `suggested_skills` from your input. Call `load_skill` for each skill you deem
    relevant to the action. You may also load additional skills.
-2. Execute the `action` following the loaded skill instructions precisely.
-All provided tools are available.
+2. Decide whether to execute directly or decompose:
+   - **Execute directly** if the action is atomic (single tool call or single well-defined operation).
+   - **Decompose** by calling `run_sub_steps` if the action requires multiple distinct phases
+     or sequential decisions..
+   - **Depth limit**: if `recursion_depth` in your context is already at the maximum,
+     `run_sub_steps` will refuse — execute directly or submit needs_replanning.
+3. If you called `run_sub_steps`, inspect the returned `sub_results` list. Each entry
+   contains the result of one sub-step. Aggregate their `key_results` and `artifacts`
+   then call `submit_step_result` with the combined outcome.
 
 ## Reporting results (REQUIRED)
 When done, call `submit_step_result` with:
@@ -99,6 +106,28 @@ Do NOT write JSON text — always use the `submit_step_result` tool.
 If `prior_context` is provided, use it to understand what prior steps produced
 and avoid repeating completed work.
 """
+
+
+async def run_sub_steps(
+    sub_steps: List[dict],
+    tool_context: ToolContext,
+) -> dict:
+    """Decompose this step into sub-steps and spawn child step executors.
+
+    Call this when the current action requires multiple distinct phases or
+    sequential decisions. Sub-steps run concurrently when independent.
+    After this returns, inspect `sub_results` and aggregate them into
+    a single `submit_step_result` call.
+
+    Args:
+        sub_steps: List of sub-step dicts, each containing:
+            - action (str, required): what to do
+            - suggested_skills (list[str], optional): skills to load
+            - prior_context (str, optional): context from earlier sub-steps
+    """
+    from .step_executor_runner import _run_sub_steps_impl  # lazy import avoids circular dep
+
+    return await _run_sub_steps_impl(sub_steps, tool_context=tool_context)
 
 
 def submit_step_result(
@@ -155,6 +184,7 @@ step_executor_agent = LlmAgent(
     instruction=_STEP_EXECUTOR_INSTRUCTION,
     input_schema=StepExecutorInput,
     tools=[
+        FunctionTool(run_sub_steps),
         FunctionTool(submit_step_result),
         FunctionTool(run_python),
         FunctionTool(run_bash),

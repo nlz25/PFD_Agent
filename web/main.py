@@ -34,6 +34,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from agents.MatCreator.workspace import get_session_workdir, get_workspace_root  # noqa: E402
+from agents.MatCreator.agents.cancellation import (  # noqa: E402
+    request_cancellation,
+    is_cancellation_requested,
+    get_cancellation_reason,
+    clear_cancellation,
+    request_step_cancellation,
+)
+from agents.MatCreator.agents.graph_logger import AgentGraphLogger  # noqa: E402
 
 app = FastAPI(title="MatCreator Graph API", version="1.0.0")
 APP_NAME = "MatCreator"
@@ -319,6 +327,75 @@ async def delete_session_file(
         raise HTTPException(status_code=500, detail=f"Failed to delete file: {exc}")
 
     return JSONResponse({"deleted": True, "path": str(resolved)})
+
+
+@app.post("/api/sessions/{session_id}/cancel")
+async def cancel_session_execution(
+    session_id: str,
+    reason: str = Query(default="user_requested", description="Cancellation reason"),
+) -> JSONResponse:
+    """Request cancellation of any ongoing execution for this session.
+
+    The agent runner checks this flag before each step (graceful) and
+    periodically during a step (force). The flag is cleared automatically
+    when the orchestrator routes back to the planner.
+    """
+    request_cancellation(session_id, reason)
+    AgentGraphLogger(session_id).mark_running_nodes_cancelled(
+        summary=f"Cancelled by user ({reason})"
+    )
+    return JSONResponse({
+        "status": "ok",
+        "session_id": session_id,
+        "message": "Cancellation requested. The running step will stop at the next checkpoint.",
+    })
+
+
+@app.get("/api/sessions/{session_id}/cancel")
+async def get_cancellation_status(session_id: str) -> JSONResponse:
+    """Check whether a cancellation is currently pending for this session."""
+    flagged = is_cancellation_requested(session_id)
+    return JSONResponse({
+        "session_id": session_id,
+        "cancellation_requested": flagged,
+        "reason": get_cancellation_reason(session_id) if flagged else None,
+    })
+
+
+@app.delete("/api/sessions/{session_id}/cancel")
+async def clear_cancellation_flag(session_id: str) -> JSONResponse:
+    """Manually clear a pending cancellation flag."""
+    clear_cancellation(session_id)
+    return JSONResponse({
+        "status": "ok",
+        "session_id": session_id,
+        "message": "Cancellation flag cleared.",
+    })
+
+
+@app.post("/api/sessions/{session_id}/cancel-step/{step_number}")
+async def cancel_individual_step(
+    session_id: str,
+    step_number: int,
+    reason: str = Query(default="user_requested", description="Cancellation reason"),
+) -> JSONResponse:
+    """Cancel a specific running step without stopping the whole session.
+
+    The step executor polls the per-step flag and exits at the next checkpoint.
+    The graph node for that step is updated immediately so the frontend reflects
+    the cancellation before the executor polls.
+    """
+    request_step_cancellation(session_id, step_number, reason)
+    found = AgentGraphLogger(session_id).cancel_step_node_by_number(
+        step_number, summary=f"Cancelled by user ({reason})"
+    )
+    return JSONResponse({
+        "status": "ok",
+        "session_id": session_id,
+        "step_number": step_number,
+        "graph_updated": found,
+        "message": f"Step {step_number} cancellation requested.",
+    })
 
 
 # Serve built frontend in production

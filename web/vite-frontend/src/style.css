@@ -146,6 +146,7 @@ body {
   max-height: 600px;
 }
 .graph-detail.hidden { display: none; }
+.hidden { display: none !important; }
 
 .panel-resizer.hidden {
   display: none;
@@ -588,6 +589,64 @@ details summary {
   user-select: none;
 }
 details summary:hover { color: var(--text); }
+
+/* ── Bench Mode Toggle ───────────────────────────────────── */
+.bench-mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0 2px;
+  gap: 8px;
+}
+.bench-toggle-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+}
+.bench-mode-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--border);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.toggle-slider::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+}
+.toggle-switch input:checked + .toggle-slider { background: #f59e0b; }
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); }
+
+.bench-mode-chip {
+  background: rgba(245,158,11,0.18);
+  color: #f59e0b;
+  border: 1px solid rgba(245,158,11,0.4);
+  font-weight: 600;
+  font-size: 11px;
+}
 
 /* ── Responsive ─────────────────────────────────────────── */
 @media (max-width: 1200px) {
