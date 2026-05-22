@@ -34,7 +34,7 @@ _CANCEL_POLL_INTERVAL = 0.5  # seconds
 
 # Wall-clock timeout for a single step or sub-step execution.
 # A sub-step that exceeds this returns needs_replanning instead of hanging.
-_SUB_STEP_TIMEOUT = int(os.environ.get("SUB_STEP_TIMEOUT", "600"))  # seconds
+_SUB_STEP_TIMEOUT = int(os.environ.get("SUB_STEP_TIMEOUT", "3600"))  # seconds
 
 
 def _now() -> str:
