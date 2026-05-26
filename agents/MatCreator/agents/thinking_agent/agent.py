@@ -14,9 +14,8 @@ from .planning import validate_plan, validate_graph
 from .intent import validate_intent
 from .summarize import validate_summarize
 from .session_summary import write_session_summary
-from ...skill import ALL_SKILLS, refresh_skills, ALL_SKILLS_TOOLSET
-from ...guide import ALL_GUIDES
-from .memory import query_knowledge_graph, save_to_knowledge_graph, update_memory, read_memory, run_synthesizer
+from ...skill import ALL_SKILLS, PLANNING_SKILL_NAMES, ALL_SKILLS_TOOLSET, refresh_skills, seed_skills_to_graph
+from .memory import query_knowledge_graph, save_to_knowledge_graph, update_memory, read_memory, run_synthesizer, search_skills, get_related_skills
 from ...tools.workspace_tools import (
     init_workspace_tool,
     run_bash,
@@ -36,94 +35,49 @@ _model_name = os.environ.get("LLM_MODEL", LLM_MODEL)
 _model_api_key = os.environ.get("LLM_API_KEY", LLM_API_KEY)
 _model_base_url = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
 
-# ---------------------------------------------------------------------------
-# load_skill_context: dynamically injects skill instruction into session state
-# ---------------------------------------------------------------------------
+# Seed all skills (ADK skills + guides) into the knowledge graph on startup.
+try:
+    seed_skills_to_graph()
+except Exception as _seed_exc:
+    logger.warning("Failed to seed skills into knowledge graph: %s", _seed_exc)
 
-def load_skill_context(skill_name: str, tool_context: ToolContext) -> dict:
-    """Load the instruction and tool list for a skill into session state.
 
-    Call this BEFORE executing any step that belongs to a specific skill.
-    The loaded instruction is injected into the agent's prompt via the
-    {active_skill} and {skill_instruction} template variables.
+def load_skill(skill_name: str) -> dict:
+    """Load skill information by name.
+
+    Returns full SKILL.md instructions for concept and guide skills (planning
+    reference material). Returns name and description only for execution skills
+    — their tool-level details are only needed by the executor.
+
+    Call this after search_skills to get the relevant content.
 
     Args:
-        skill_name: Exact skill name as listed in Available skills.
+        skill_name: Exact name as returned by search_skills.
     """
     normalized = (skill_name or "").strip()
-    if not normalized:
-        return {
-            "status": "error",
-            "message": "skill_name is required.",
-            "available_skills": sorted(s.name for s in ALL_SKILLS),
-        }
-
-    selected = next((s for s in ALL_SKILLS if s.name == normalized), None)
-    if selected is None:
+    skill = next((s for s in ALL_SKILLS if s.name == normalized), None)
+    if skill is None:
         lowered = normalized.lower()
-        selected = next((s for s in ALL_SKILLS if s.name.lower() == lowered), None)
+        skill = next((s for s in ALL_SKILLS if s.name.lower() == lowered), None)
 
-    if selected is None:
+    if skill is None:
         return {
             "status": "error",
             "message": f"Skill '{skill_name}' not found.",
             "available_skills": sorted(s.name for s in ALL_SKILLS),
         }
 
-    tool_context.state["active_skill"] = selected.name
-    tool_context.state["skill_instruction"] = selected.instructions
-
-    needed_tools = selected.frontmatter.metadata.get("tools", [])
+    if skill.name in PLANNING_SKILL_NAMES:
+        return {
+            "status": "ok",
+            "skill": skill.name,
+            "description": skill.description,
+            "instructions": skill.instructions,
+        }
     return {
         "status": "ok",
-        "skill": selected.name,
-        #"instruction": selected.instructions,
-        #"needed_tools": needed_tools,
-        "message": f"Loaded skill context for '{selected.name}'.",
-    }
-
-
-def clear_current_skill(tool_context: ToolContext) -> dict:
-    """Clear the active skill context from session state.
-    Call this after finishing a skill-specific step to avoid stale context.
-    """
-    tool_context.state["active_skill"] = None
-    tool_context.state["skill_instruction"] = None
-    return {"status": "ok", "message": "Active skill context cleared."}
-
-
-def load_guide(guide_name: str) -> dict:
-    """Return the full instruction content for a guide.
-
-    Call this before planning when the user's goal matches a known guide.
-
-    Args:
-        guide_name: Exact guide name as listed in Available guides.
-    """
-    normalized = (guide_name or "").strip()
-    if not normalized:
-        return {
-            "status": "error",
-            "message": "guide_name is required.",
-            "available_guides": sorted(g.name for g in ALL_GUIDES),
-        }
-
-    selected = next((g for g in ALL_GUIDES if g.name == normalized), None)
-    if selected is None:
-        lowered = normalized.lower()
-        selected = next((g for g in ALL_GUIDES if g.name.lower() == lowered), None)
-
-    if selected is None:
-        return {
-            "status": "error",
-            "message": f"Guide '{guide_name}' not found.",
-            "available_guides": sorted(g.name for g in ALL_GUIDES),
-        }
-
-    return {
-        "status": "ok",
-        "guide": selected.name,
-        "instruction": selected.instructions,
+        "skill": skill.name,
+        "description": skill.description,
     }
 
 
@@ -214,25 +168,23 @@ You are MatCreator, an AI assistant for computational materials science workflow
 Your role here is **PLANNING ONLY**: you are responsible only for planning; all concrete execution steps must be delegated to the execution agent.
 
 ## Context
-- Available guides: {guides}
 - Goal: {goal}
 - Execution graph: {execution_graph}
 - Summarize: {summarize}
 
 ## Default workflow
 1. Determine the user's goal, then call `validate_intent` with your interpretation.
-   Call `query_knowledge_graph` with the user's goal to retrieve relevant past knowledge,
-   lessons, and related skills. Do NOT use `read_memory` for knowledge seeking — it dumps
-   the entire memory file and should only be used when explicitly requested by the user.
-2. If the user's goal matches one of the Available guides, call `load_guide` before planning.
-3. Always draft an execution graph, then call `validate_graph` to validate and commit it.
+   Call `query_knowledge_graph` with the user's goal to retrieve relevant past knowledge and lessons.
+   Call `search_skills` with the user's goal to discover relevant skills and guides.
+   Use `get_related_skills` to discover its dependencies or closely related workflows.
+2. Always draft an execution graph, then call `validate_graph` to validate and commit it.
    Present the plan to the user as a Markdown table with columns:
    **Node ID | Label | Action | Depends On**
    (where "Depends On" lists predecessor node IDs, or "—" for root nodes).
 {confirmation_instruction}
-5. If the user asks to create or test a skill, call `request_skill_testing(description)`.
-6. After completing a node, use `save_to_knowledge_graph` to persist key lessons or findings.
-7. Once execution has fully completed and results are available, call `write_session_summary`
+4. If the user asks to create or test a skill, call `request_skill_testing(description)`.
+5. After completing a node, use `save_to_knowledge_graph` to persist key lessons or findings.
+6. Once execution has fully completed and results are available, call `write_session_summary`
    with the global narrative: original goal, approach rationale, key decisions, lessons
    learned, any failed attempts, and the overall outcome.
 
@@ -284,28 +236,16 @@ Your role here is **PLANNING ONLY**: you are responsible only for planning; all 
 # ---------------------------------------------------------------------------
 
 def before_agent_callback(callback_context: CallbackContext) -> None:
-    """Refresh memory, skills, and guides in session state each invocation."""
+    """Refresh memory and state each invocation."""
     state = callback_context._invocation_context.session.state
     for key, default in [
         ("execution_graph", None),
         ("goal", None),
-        ("skills", None),
-        ("guides", None),
-        ("active_skill", None),
-        ("skill_instruction", None),
         ("summarize", None),
         ("trajectory_step", 0),
     ]:
         if key not in state:
             callback_context.state[key] = default
-    
-    #callback_context.state["skills"] = "\n".join(
-    #    f"- {s.name}: {s.description}" for s in ALL_SKILLS
-    #) if ALL_SKILLS else "No skills available."
-
-    callback_context.state["guides"] = "\n".join(
-        f"- {g.name}: {g.description}" for g in ALL_GUIDES
-    ) if ALL_GUIDES else "No guides available."
 
     if state.get("benchmark_mode", False):
         callback_context.state["confirmation_instruction"] = (
@@ -346,7 +286,8 @@ thinking_agent = LlmAgent(
         FunctionTool(confirm_plan_and_start_execution),
         FunctionTool(resume_execution),
         FunctionTool(request_skill_testing),
-        FunctionTool(load_guide),
+        FunctionTool(search_skills),
+        FunctionTool(get_related_skills),
         FunctionTool(query_knowledge_graph),
         FunctionTool(save_to_knowledge_graph),
         FunctionTool(run_synthesizer),
@@ -361,8 +302,7 @@ thinking_agent = LlmAgent(
         show_artifact,
         show_plot,
         show_structure,
-        #*[t for t in ALL_SKILLS_TOOLSET._tools if t.name != "load_skill"],
-        ALL_SKILLS_TOOLSET
+        #ALL_SKILLS_TOOLSET,
     ],
     before_agent_callback=before_agent_callback,
 )

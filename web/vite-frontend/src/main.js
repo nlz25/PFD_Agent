@@ -1042,6 +1042,8 @@ if (!state.userId) {
     if (localStorage.getItem("mat_sessionId")) {
       state.sessionReady = true;
       await loadSession(state.sessionId);
+      agentGraph.startPolling(state.sessionId);
+      planGraph.startPolling(state.sessionId);
     }
   });
 }

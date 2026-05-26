@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from ..workspace import WORKSPACE_ROOT
-from .graph_store import KnowledgeGraph
+from .graph_store import KnowledgeGraph  # noqa: F401 (kept for type hints)
+from .query import _get_memory_kg
 
 logger = logging.getLogger(__name__)
 
@@ -23,20 +24,20 @@ Given a session trajectory (per-step results) and an optional session-level summ
 (global narrative, decisions, failures, lessons), extract knowledge graph entries.
 
 Return a JSON array of objects. Each object must have:
-  "type":        one of Concept | Skill | Material | Result | Insight | Workflow
   "name":        short canonical name (≤80 chars)
   "description": one sentence describing it
   "relations":   list of {{source_name, edge_type, target_name}} objects
-                 edge_type must be one of: requires | produces | tested_on |
-                 specializes | similar_to | discovered_in | supersedes
+                 edge_type must be one of: depends_on | belongs_to | relates_to
+
+All extracted nodes are memory nodes (lessons, findings, heuristics).
+Relations may reference skill node names (existing tool/guide names) as targets.
 
 Rules:
 - Extract 5-20 entries total — quality over quantity.
-- Insights are lessons learned (heuristics, warnings, best practices).
-- Results are quantitative findings (energies, convergence, accuracy numbers).
-- Prefer extracting Insights from the session summary (lessons_learned, failed_attempts)
-  and Results/Materials from the trajectory steps.
-- Only emit relations where both source and target appear in the entry list.
+- Focus on lessons learned, heuristics, warnings, quantitative results.
+- Prefer extracting from the session summary (lessons_learned, failed_attempts)
+  and per-step results from the trajectory.
+- Only emit relations where source appears in the entry list or is a known skill name.
 - Output ONLY the JSON array, no prose.
 
 Session summary (global narrative):
@@ -170,21 +171,20 @@ def run_knowledge_extractor(session_id: str) -> dict:
             "edges_created": 0,
         }
 
-    kg = KnowledgeGraph()
+    kg = _get_memory_kg()
     node_map: dict[str, str] = {}  # name → node id
     nodes_created = 0
     edges_created = 0
     new_nodes: list = []  # collect newly inserted nodes for batch embedding
 
-    # First pass: upsert all nodes
+    # First pass: upsert all nodes as memory category
     for entry in entries:
-        ntype = entry.get("type", "Concept")
         nname = entry.get("name", "").strip()
         ndesc = entry.get("description", "")
         if not nname:
             continue
         node = kg.upsert_node(
-            type=ntype,
+            category="memory",
             name=nname,
             description=ndesc,
             source_session=session_id,

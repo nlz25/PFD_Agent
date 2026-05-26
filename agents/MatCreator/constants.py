@@ -22,11 +22,16 @@ EXECUTION_COMPACT_EVERY_EVENTS: int = int(os.environ.get("EXECUTION_COMPACT_EVER
 
 
 _AGENT_PATH = _script_dir
-_ADK_DIR = _script_dir / ".adk"          # ADK internal storage (session.db, knowledge_graph.db)
+_ADK_DIR = _script_dir / ".adk"          # ADK internal storage (session.db, etc.)
 _KNOWLEDGE_PATH= _script_dir / "knowledge"
 _SKILLS_DIR = _script_dir / "skills"
 _GUIDES_DIR = _script_dir/ "guides"
 _MEMORY_PATH = _KNOWLEDGE_PATH /"MEMORY.md"
+
+# Knowledge graph databases (split by lifecycle and ownership)
+SKILL_GRAPH_DB  = _ADK_DIR / "skill_graph.db"   # dev-maintained, immutable skill/guide nodes
+MEMORY_GRAPH_DB = _ADK_DIR / "memory_graph.db"  # user-generated memory nodes from sessions
+# Legacy single-DB path (knowledge_graph.db) is no longer used.
 
 # Workspace paths — resolved lazily at runtime via workspace.get_workspace_root()
 # These are re-exported here for convenience so other modules only need one import.

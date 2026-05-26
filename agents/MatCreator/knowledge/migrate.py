@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 import re
 
-from .graph_store import KnowledgeGraph
+from .graph_store import KnowledgeGraph  # noqa: F401 (kept for type hints)
+from .query import _get_memory_kg
 
 logger = logging.getLogger(__name__)
 
@@ -50,14 +51,14 @@ def migrate_memory_md(memory_path: str | None = None) -> dict:
         if len(cleaned) >= 10:
             entries.append(cleaned)
 
-    kg = KnowledgeGraph()
+    kg = _get_memory_kg()
     created = 0
     skipped = 0
 
     for entry in entries:
         name = entry[:80].rstrip(".")
         node = kg.upsert_node(
-            type="Insight",
+            category="memory",
             name=name,
             description=entry,
             content={"raw": entry, "source": "MEMORY.md"},

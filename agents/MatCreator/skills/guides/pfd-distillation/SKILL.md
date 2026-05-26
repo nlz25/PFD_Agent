@@ -1,10 +1,19 @@
 ---
 name: pfd-distillation
-description: Iterative workflow for model distillation.
-tags: [iterative, active_learning, distillation]
-skills: [structure_agent, dpa_agent, plot_agent]
+description: Iterative workflow for model distillation. Generates a light ML force field from a pre-trained or fine-tuned model via active learning.
+metadata:
+  dependent_skills:
+    - machine-learning-force-field
+    - molecular-dynamics
+    - atomic-structure
+    - deepmd
+  tags:
+    - iterative
+    - active-learning
+    - distillation
 ---
-Generate a light ML force field from a  pre-trained or fine-tuned model by distillation.
+
+Generate a light ML force field from a pre-trained or fine-tuned model by distillation.
 
 Standard loop:
 1. Structure building

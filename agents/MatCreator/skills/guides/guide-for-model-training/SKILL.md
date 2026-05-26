@@ -1,9 +1,18 @@
 ---
-name: guide_for_model_training
-description: General guideline for MLFF model training.
-skills: [dpa_agent, abacus_agent, structure_agent, plot_agent]
-tags: [model, fine-tune, machine learning force field]
+name: guide-for-model-training
+description: General guideline for MLFF model training. Describes the decision flow for choosing between pre-trained model validation, fine-tuning on available data, and launching a full PFD workflow.
+metadata:
+  dependent_skills:
+    - machine-learning-force-field
+    - dft-calculation
+    - deepmd
+    - abacus
+  tags:
+    - model
+    - fine-tune
+    - machine-learning-force-field
 ---
+
 Model training is a dynamic, iterative process. Follow this decision flow and revisit earlier steps if results are unsatisfactory.
 
 ## Decision Flow

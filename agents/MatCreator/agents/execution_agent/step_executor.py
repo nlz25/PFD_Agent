@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from ...constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 from ...skill import ALL_SKILLS_TOOLSET
+from ...knowledge.query import search_skills
 from ...tools.remoteagent_tool import load_remote_a2a_agents
 from ...tools.util_tools import show_artifact, show_plot, show_structure
 from ...tools.workspace_tools import run_bash, run_python
@@ -68,7 +69,8 @@ You are a focused step executor. Execute the single plan step provided in your i
 
 ## Your task
 1. Review `suggested_skills` from your input. Call `load_skill` for each skill you deem
-   relevant to the action. You may also load additional skills.
+   relevant to the action. Use `search_skills` to discover additional skills if the
+   suggested list is insufficient.
 2. Decompose task into sub-tasks. Directly execute them (**simple** cases) or **Delegate** them to child executors by calling `run_sub_agent` tool (**complex** cases).
        
 ## Reporting results (REQUIRED)
@@ -180,6 +182,7 @@ step_executor_agent = LlmAgent(
     tools=[
         FunctionTool(run_sub_agent),
         FunctionTool(submit_step_result),
+        FunctionTool(search_skills),
         FunctionTool(run_python),
         FunctionTool(run_bash),
         ALL_SKILLS_TOOLSET,

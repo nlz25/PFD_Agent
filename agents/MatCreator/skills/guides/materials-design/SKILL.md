@@ -1,9 +1,24 @@
 ---
 name: materials-design
 description: Iterative workflow for materials design through candidate generation, property prediction, screening, and refinement.
-skills: [mattergen-generation, mattergen-finetune, mattergen-evaluation, structure_conversion, mattersim, cgcnn_predictor, vasp]
-tags: [materials design, inverse design, screening, generation]
+metadata:
+  dependent_skills:
+    - dft-calculation
+    - structure-generation
+    - mattergen-generation
+    - mattergen-finetune
+    - mattergen-evaluation
+    - structure-conversion
+    - mattersim
+    - cgcnn-predictor
+    - vasp
+  tags:
+    - materials-design
+    - inverse-design
+    - screening
+    - generation
 ---
+
 Use this guide for iterative crystal materials design workflows that involve candidate generation, structure relaxation, property prediction, screening, and optional refinement.
 
 ## Standard Loop

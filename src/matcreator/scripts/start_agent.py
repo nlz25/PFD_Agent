@@ -5,14 +5,11 @@ Usage:
     matcreator [OPTIONS] COMMAND [ARGS]
 
 Commands:
-    init        Set the project root path (saved to ~/.matcreator/config.yaml).
     web         Launch the ADK web UI.
     api-server  Launch the ADK API server (used by the Streamlit app).
     run         Run the agent non-interactively on a single prompt.
 
 Examples:
-    matcreator init .
-    matcreator init /path/to/PFD-Agent
     matcreator web
     matcreator web --reload-agents --port 8080
     matcreator api-server
@@ -29,56 +26,23 @@ import sys
 import time
 from pathlib import Path
 
-import yaml
 import click
 
-_CONFIG_PATH = Path("~/.matcreator/config.yaml").expanduser()
-
-
-def _resolve_project_root() -> tuple[Path, bool]:
+def _resolve_project_root() -> Path:
     """Resolve the MatCreator project root.
 
-    Resolution order (first match wins):
-      1. ``MATCREATOR`` environment variable
-      2. ``project_root`` in ``~/.matcreator/config.yaml``
-      3. Fallback: derive from ``__file__`` (works for editable / source installs)
-
-    Returns (path, explicitly_configured).
+    Checks the MATCREATOR env var first; falls back to __file__-based resolution
+    which is only reliable for editable / source installs.
+    For a proper installation, set MATCREATOR=/path/to/PFD-Agent.
     """
-    # 1. Environment variable
     env_val = os.environ.get("MATCREATOR")
     if env_val:
-        return Path(env_val).expanduser().resolve(), True
-
-    # 2. Config file
-    if _CONFIG_PATH.is_file():
-        with open(_CONFIG_PATH) as fh:
-            cfg = yaml.safe_load(fh) or {}
-        cfg_val = cfg.get("project_root")
-        if cfg_val:
-            return Path(cfg_val).expanduser().resolve(), True
-
-    # 3. Fallback: __file__-based (src/matcreator/scripts/start_agent.py → repo root)
-    return Path(__file__).resolve().parent.parent.parent.parent, False
+        return Path(env_val).expanduser().resolve()
+    return Path(__file__).resolve().parent.parent.parent.parent
 
 
-PROJECT_ROOT, _PROJECT_ROOT_CONFIGURED = _resolve_project_root()
+PROJECT_ROOT = _resolve_project_root()
 AGENTS_DIR = PROJECT_ROOT / "agents"
-
-
-def _warn_if_unconfigured() -> None:
-    """Emit a warning when the project root was not explicitly configured."""
-    if not _PROJECT_ROOT_CONFIGURED:
-        click.secho(
-            "Warning: project root is not configured. "
-            "Using fallback path: " + str(PROJECT_ROOT),
-            fg="yellow", err=True,
-        )
-        click.secho(
-            "Run 'matcreator init <project-dir>' or set the MATCREATOR "
-            "environment variable.",
-            fg="yellow", err=True,
-        )
 
 # Shared options applied to both subcommands
 _shared_options = [
@@ -143,43 +107,6 @@ def main():
     """MatCreator CLI — manage and run the MatCreator agent."""
 
 
-@main.command("init")
-@click.argument("project_dir", default=".", type=click.Path(exists=True, file_okay=False))
-def init_cmd(project_dir):
-    """Set the project root path (saved to ~/.matcreator/config.yaml).
-
-    PROJECT_DIR defaults to the current directory. The path must contain an
-    ``agents/`` subdirectory.
-
-    \b
-    Examples:
-        matcreator init .
-        matcreator init /home/user/dev/PFD-Agent
-    """
-    root = Path(project_dir).expanduser().resolve()
-    agents = root / "agents"
-    if not agents.is_dir():
-        raise click.ClickException(
-            f"'{root}' does not look like a MatCreator project "
-            f"(missing agents/ directory)."
-        )
-
-    _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-    cfg = {}
-    if _CONFIG_PATH.is_file():
-        with open(_CONFIG_PATH) as fh:
-            cfg = yaml.safe_load(fh) or {}
-
-    cfg["project_root"] = str(root)
-
-    with open(_CONFIG_PATH, "w") as fh:
-        yaml.safe_dump(cfg, fh, default_flow_style=False)
-
-    click.echo(f"Project root saved to {_CONFIG_PATH}")
-    click.echo(f"  project_root: {root}")
-
-
 @main.command("web")
 @add_shared_options
 @click.option("--reload-agents", is_flag=True, default=False,
@@ -188,7 +115,6 @@ def init_cmd(project_dir):
               help="Enable auto-reload for the FastAPI server.")
 def web(host, port, workspace, log_level, verbose, reload_agents, reload):
     """Launch the ADK web UI (browser-based chat interface)."""
-    _warn_if_unconfigured()
     _setup_workspace(workspace)
 
     cmd = [
@@ -215,7 +141,6 @@ def web(host, port, workspace, log_level, verbose, reload_agents, reload):
 def api_server(host, port, workspace, log_level, reload_agents,
                verbose, reload):
     """Launch the ADK API server (used by the Streamlit app)."""
-    _warn_if_unconfigured()
     _setup_workspace(workspace)
 
     cmd = [
@@ -242,7 +167,6 @@ async def run_agent_async(
     workspace_dir: str,
     prompt: str,
     max_turns: int = 50,
-    session_dir: str | None = None,
 ) -> dict:
     """Run the agent non-interactively on a single prompt.
 
@@ -250,16 +174,9 @@ async def run_agent_async(
     duration_ms, num_events.
     """
     os.environ["MATCLAW_WORKSPACE"] = str(Path(workspace_dir).resolve())
-    if session_dir:
-        os.environ["MATCLAW_SESSION_DIR"] = str(Path(session_dir).resolve())
 
     from google.adk.runners import InMemoryRunner
     from google.genai import types
-
-    # Make the top-level `agents` package importable.
-    _project_root = str(PROJECT_ROOT)
-    if _project_root not in sys.path:
-        sys.path.insert(0, _project_root)
 
     from agents.MatCreator.agent import app
 
@@ -342,11 +259,8 @@ async def run_agent_async(
               help="Write output to a file instead of stdout.")
 @click.option("--max-turns", default=50, show_default=True, type=int,
               help="Maximum agent turns before stopping.")
-@click.option("--session-dir", default=None, metavar="DIR",
-              help="Override session directory (also settable via MATCLAW_SESSION_DIR).")
-def run_cmd(workspace, prompt_text, prompt_file, output_format, output_file, max_turns, session_dir):
+def run_cmd(workspace, prompt_text, prompt_file, output_format, output_file, max_turns):
     """Run the agent non-interactively on a single prompt."""
-    _warn_if_unconfigured()
     if prompt_text and prompt_file:
         raise click.UsageError("Use either -p/--prompt or -f/--prompt-file, not both.")
     if not prompt_text and not prompt_file:
@@ -358,7 +272,7 @@ def run_cmd(workspace, prompt_text, prompt_file, output_format, output_file, max
     ws_root = Path(workspace).expanduser().resolve() if workspace else _resolve_workspace()
     ws_root.mkdir(parents=True, exist_ok=True)
 
-    result = asyncio.run(run_agent_async(str(ws_root), prompt_text, max_turns, session_dir=session_dir))
+    result = asyncio.run(run_agent_async(str(ws_root), prompt_text, max_turns))
 
     if output_format == "json":
         content = json.dumps(result, ensure_ascii=False, indent=2)
@@ -370,6 +284,103 @@ def run_cmd(workspace, prompt_text, prompt_file, output_format, output_file, max
         Path(output_file).write_text(content)
     else:
         click.echo(content)
+
+
+# ---------------------------------------------------------------------------
+# `matcreator knowledge` subcommand group
+# ---------------------------------------------------------------------------
+
+@main.group("knowledge")
+def knowledge_group():
+    """Inspect and manage the knowledge graph."""
+
+
+def _ensure_path(project_root: Path) -> None:
+    """Add project root and agents dir to sys.path for imports."""
+    for p in (str(project_root), str(project_root / "agents")):
+        if p not in sys.path:
+            sys.path.insert(0, p)
+
+
+@knowledge_group.command("query")
+@click.argument("text")
+@click.option("--top-k", default=15, show_default=True, type=int,
+              help="Maximum number of nodes to return.")
+@click.option("--depth", default=2, show_default=True, type=int,
+              help="BFS expansion depth from seed nodes.")
+@click.option("--workspace", default=None, metavar="DIR",
+              help="Override the workspace root directory.")
+def knowledge_query(text, top_k, depth, workspace):
+    """Query the memory knowledge graph for nodes matching TEXT."""
+    _setup_workspace(workspace)
+    _ensure_path(PROJECT_ROOT)
+    from agents.MatCreator.knowledge.query import query_knowledge_graph
+    result = query_knowledge_graph(text, depth=depth, top_k=top_k)
+    click.echo(result)
+
+
+@knowledge_group.command("search-skills")
+@click.argument("text")
+@click.option("--top-k", default=5, show_default=True, type=int,
+              help="Maximum number of skills to return.")
+@click.option("--workspace", default=None, metavar="DIR",
+              help="Override the workspace root directory.")
+def knowledge_search_skills(text, top_k, workspace):
+    """Search for skill nodes semantically matching TEXT."""
+    _setup_workspace(workspace)
+    _ensure_path(PROJECT_ROOT)
+    from agents.MatCreator.knowledge.query import search_skills
+    result = search_skills(text, top_k=top_k)
+    click.echo(result)
+
+
+@knowledge_group.command("related-skills")
+@click.argument("start_node")
+@click.option("--top-k", default=5, show_default=True, type=int,
+              help="Maximum number of related skills to return.")
+@click.option("--depth", default=2, show_default=True, type=int,
+              help="BFS depth limit.")
+@click.option("--workspace", default=None, metavar="DIR",
+              help="Override the workspace root directory.")
+def knowledge_related_skills(start_node, top_k, depth, workspace):
+    """Traverse the dependency graph from a known skill START_NODE."""
+    _setup_workspace(workspace)
+    _ensure_path(PROJECT_ROOT)
+    from agents.MatCreator.knowledge.query import get_related_skills
+    result = get_related_skills(start_node, top_k=top_k, depth=depth)
+    click.echo(result)
+
+
+@knowledge_group.command("stats")
+@click.option("--workspace", default=None, metavar="DIR",
+              help="Override the workspace root directory.")
+def knowledge_stats(workspace):
+    """Print node and edge counts for both skill and memory graphs."""
+    _setup_workspace(workspace)
+    _ensure_path(PROJECT_ROOT)
+    from agents.MatCreator.knowledge.query import _get_skill_kg, _get_memory_kg
+    s = _get_skill_kg().stats()
+    m = _get_memory_kg().stats()
+    click.echo("Skill graph (dev-maintained):")
+    click.echo(f"  Nodes: {s['nodes']}  Edges: {s['edges']}")
+    for cat, count in s.get("by_category", {}).items():
+        click.echo(f"    {cat}: {count}")
+    click.echo("Memory graph (user-generated):")
+    click.echo(f"  Nodes: {m['nodes']}  Edges: {m['edges']}")
+    for cat, count in m.get("by_category", {}).items():
+        click.echo(f"    {cat}: {count}")
+
+
+@knowledge_group.command("seed")
+@click.option("--workspace", default=None, metavar="DIR",
+              help="Override the workspace root directory.")
+def knowledge_seed(workspace):
+    """Seed the knowledge graph with all SKILL.md and guide nodes."""
+    _setup_workspace(workspace)
+    _ensure_path(PROJECT_ROOT)
+    from agents.MatCreator.skill import seed_skills_to_graph
+    result = seed_skills_to_graph()
+    click.echo(f"Seeded {result['seeded']} nodes, {result['edges_created']} dependency edges created.")
 
 
 if __name__ == "__main__":

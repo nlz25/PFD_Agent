@@ -4,25 +4,23 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, String, Integer, Float, DateTime, JSON, ForeignKey,
+    Column, String, Integer, Float, DateTime, JSON, Boolean, ForeignKey,
     Index,
 )
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
-NODE_TYPES = {"Concept", "Skill", "Material", "Result", "Insight", "Workflow"}
-EDGE_TYPES = {
-    "requires", "produces", "tested_on", "specializes",
-    "similar_to", "discovered_in", "supersedes",
-}
+CATEGORIES = {"skill", "memory"}
+EDGE_TYPES = {"depends_on", "belongs_to", "relates_to"}
 
 
 class KgNode(Base):
     __tablename__ = "kg_nodes"
 
     id              = Column(String, primary_key=True)
-    type            = Column(String, nullable=False)
+    category        = Column(String, nullable=False)   # "skill" | "memory"
+    type            = Column(String, nullable=True)    # legacy, kept for migration compat
     name            = Column(String, nullable=False)
     description     = Column(String, nullable=True)
     content         = Column(JSON,   nullable=True)
@@ -34,6 +32,7 @@ class KgNode(Base):
                              onupdate=lambda: datetime.now(timezone.utc))
     reference_count = Column(Integer, nullable=False, default=0)
     confidence      = Column(Float,   nullable=False, default=1.0)
+    immutable       = Column(Boolean, nullable=False, default=False)
     embedding       = Column(JSON,    nullable=True)   # float list from embedding API
 
     out_edges = relationship("KgEdge", foreign_keys="KgEdge.source_id",
@@ -42,7 +41,7 @@ class KgNode(Base):
                              back_populates="target", cascade="all, delete-orphan")
 
     __table_args__ = (
-        Index("idx_nodes_type", "type"),
+        Index("idx_nodes_category", "category"),
         Index("idx_nodes_name", "name"),
     )
 

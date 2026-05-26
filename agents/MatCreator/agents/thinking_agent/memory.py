@@ -16,8 +16,32 @@ _MEMORY_PATH = WORKSPACE_ROOT / "MEMORY.md"
 # Knowledge graph tools (preferred)
 # ---------------------------------------------------------------------------
 
-from ...knowledge.query import query_knowledge_graph, save_to_knowledge_graph  # noqa: F401
+from ...knowledge.query import (
+    query_knowledge_graph as _query_knowledge_graph,
+    save_to_knowledge_graph,
+    search_skills,
+    get_related_skills,
+)
 from ...knowledge.synthesizer import run_knowledge_synthesizer as _run_synthesizer
+
+
+def query_knowledge_graph(
+    query: str,
+    depth: int = 2,
+    top_k: int = 15,
+) -> str:
+    """Query the memory knowledge graph for lessons and past findings relevant to *query*.
+
+    Returns user-generated memory nodes from past sessions. Memory nodes may
+    reference skill names in their content to express skill associations.
+    To discover available skills, use `search_skills` instead.
+
+    Args:
+        query: Free-text search string.
+        depth: BFS expansion depth (default 2).
+        top_k: Maximum nodes to return (default 15).
+    """
+    return _query_knowledge_graph(query, depth=depth, top_k=top_k)
 
 
 def run_synthesizer(
