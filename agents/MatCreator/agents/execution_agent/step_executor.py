@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from ...constants import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 from ...skill import ALL_SKILLS_TOOLSET
-from ...knowledge.query import search_skills
+from ...knowledge.query import search_skills,get_related_skills
 from ...tools.remoteagent_tool import load_remote_a2a_agents
 from ...tools.util_tools import show_artifact, show_plot, show_structure
 from ...tools.workspace_tools import run_bash, run_python
@@ -183,6 +183,7 @@ step_executor_agent = LlmAgent(
         FunctionTool(run_sub_agent),
         FunctionTool(submit_step_result),
         FunctionTool(search_skills),
+        FunctionTool(get_related_skills),
         FunctionTool(run_python),
         FunctionTool(run_bash),
         ALL_SKILLS_TOOLSET,
