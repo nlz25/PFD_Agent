@@ -37,7 +37,7 @@ Every command prints JSON to stdout and exits 0 on success, 1 on error.
 ## Mandatory workflow sequence
 
 1. **Obtain structures** — supply a multi-frame extxyz (or any ASE-readable file).
-2. **Prepare job directories** — run `ase_deepmd_tools.py prepare_md` or `prepare_relax`.
+2. **Prepare job directories** — run `ase_deepmd_tools.py prepare_md` or `prepare_relax`.  By default the pretrained model is frozen with `dp --pt freeze --head Omat24` before being copied into each job directory, so the runtime `DP` calculator loads a single-task model (no `--head` needed).  Pass `--head none` to skip freezing.
 3. **Submit jobs** — generate a `submission.template.json` from the returned `calc_dir_list` and submit via the `dpdisp-submit` skill (see [Submission section](#submission-dpdisp-skill) below).
 4. **Collect results** — after jobs finish, run `collect_md` or `collect_relax`.
 
@@ -81,11 +81,11 @@ python ase_deepmd_tools.py prepare_md \
 | Flag | Default | Description |
 |---|---|---|
 | `--structures` | required | Any ASE-readable structure file |
-| `--model_path` | env var | Local `.pt` model; copied into every job dir.  Falls back to `ASE_DEEPMD_MODEL_PATH`. |
+| `--model_path` | env var | Local `.pt` model; copied into every job dir.  Falls back to `DEEPMD_MODEL_PATH`. |
 | `--remote_model_path` | — | Remote model path; mutually exclusive with `--model_path` |
 | `--stages` | required | JSON list of stage dicts (see schema below) |
 | `--frames` | all | Specific frame indices to process |
-| `--head` | null | Multi-task model head name |
+| `--head` | Omat24 | Multi-task head to freeze (`dp --pt freeze`). Pass `none` to skip freezing and use the model as-is. |
 | `--save_interval_steps` | 100 | Trajectory write frequency |
 | `--traj_prefix` | traj | Trajectory filename prefix |
 | `--seed` | 42 | Velocity initialisation seed |
@@ -118,6 +118,7 @@ python ase_deepmd_tools.py prepare_relax \
 
 | Flag | Default | Description |
 |---|---|---|
+| `--head` | Omat24 | Multi-task head to freeze (`dp --pt freeze`). Pass `none` to skip freezing and use the model as-is. |
 | `--force_tolerance` | 0.01 | Convergence threshold in eV/Å |
 | `--max_iterations` | 200 | Maximum BFGS steps |
 | `--relax_cell` | false | Also relax lattice parameters (ExpCellFilter) |
@@ -138,7 +139,7 @@ Submission uses the `dpdisp` skill (DPDispatcher) with `BohriumContext`.
 | `BOHRIUM_PROJECT_ID` | Bohrium project ID (integer) |
 | `BOHRIUM_DEEPMD_ASE_MACHINE` | Machine/scass type, e.g. `c32_m128_cpu` |
 | `BOHRIUM_DEEPMD_ASE_IMAGE` | Container image URI providing ASE + DeePMD |
-| `ASE_DEEPMD_MODEL_PATH` | Default local model path (used when `--model_path` is omitted) |
+| `DEEPMD_MODEL_PATH` | Default local model path (used when `--model_path` is omitted) |
 
 ### MD jobs
 
@@ -300,11 +301,11 @@ Example output (variable not configured):
 {
   "status": "not_set",
   "model_path": null,
-  "message": "ASE_DEEPMD_MODEL_PATH is not set in the environment or .env file."
+  "message": "DEEPMD_MODEL_PATH is not set in the environment or .env file."
 }
 ```
 
-Use this command to verify that `ASE_DEEPMD_MODEL_PATH` is correctly configured before running a large batch of jobs.
+Use this command to verify that `DEEPMD_MODEL_PATH` is correctly configured before running a large batch of jobs.
 
 ---
 

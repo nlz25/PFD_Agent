@@ -438,8 +438,9 @@ def cmd_prepare_finetune(args) -> None:
     exec_cmd = (
         f"dp --pt train input.json --finetune {model_dest.name} --use-pretrain-script"
     )
-    if args.head:
-        exec_cmd += f" --model-branch {args.head}"
+    head = args.head
+    if head and head.lower() != "none":
+        exec_cmd += f" --model-branch {head}"
     _print_result(workdir, "dpa-finetune", exec_cmd, args.numb_steps)
 
 
@@ -558,7 +559,7 @@ def cmd_convert_data(args) -> None:
     test_cmds = []
     for sp in system_paths:
         cmd = f"dp --pt test -m <model.ckpt.pt> -s {sp}"
-        if args.head:
+        if args.head and args.head.lower() != "none":
             cmd += f" --head {args.head}"
         if args.nframes:
             cmd += f" -n {args.nframes}"
@@ -674,8 +675,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pretrained DPA model file (.pt)",
     )
     pf.add_argument(
-        "--head", default=None, metavar="NAME",
-        help="Model branch/head to initialise from (default: reinitialise fitting net)",
+        "--head", default="Omat24", metavar="NAME",
+        help="Model branch/head to initialise from (default: Omat24). "
+             "Pass 'none' to reinitialise the fitting net.",
     )
     pf.add_argument(
         "--type_map", nargs="+", default=None, metavar="ELEMENT",
@@ -739,8 +741,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Export in deepmd/npy/mixed format (allows variable composition)",
     )
     cd.add_argument(
-        "--head", default=None, metavar="NAME",
-        help="Model head to embed in the printed dp test command (optional)",
+        "--head", default="Omat24", metavar="NAME",
+        help="Model head to embed in the printed dp test command (default: Omat24)",
     )
     cd.add_argument(
         "--nframes", type=int, default=None, metavar="N",

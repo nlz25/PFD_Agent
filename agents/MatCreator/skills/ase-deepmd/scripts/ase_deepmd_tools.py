@@ -60,6 +60,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
 import traceback
 from datetime import datetime
@@ -76,11 +77,25 @@ from ase.io import read, write
 _SCRIPT_DIR = Path(__file__).parent
 _DEFAULT_CONFIG = _SCRIPT_DIR / "config.yaml"
 _MODEL_FILENAME = "model.pt"   # name used inside every job directory
+_FROZEN_MODEL_FILENAME = "frozen_model.pth"
 
 
 def _load_config(config_path: Path) -> dict:
     with open(config_path) as fh:
         return yaml.safe_load(fh)
+
+
+def _freeze_model(pretrained: Path, head: str, output: Path) -> Path:
+    """Freeze a multi-task DeePMD model to a single-task one via ``dp freeze``."""
+    cmd = ["dp", "--pt", "freeze", "-c", str(pretrained), "--head", head, "-o", str(output)]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"dp freeze failed (exit {result.returncode}):\n{result.stderr}"
+        )
+    if not output.exists():
+        raise FileNotFoundError(f"Freeze command ran but output not found: {output}")
+    return output
 
 
 def _load_env(config_path: Path) -> None:
@@ -144,8 +159,17 @@ def cmd_prepare_md(args) -> dict:
     # One batch directory per prepare_md call — model and runner are copied here once.
     batch_dir = work_dir / _job_id()
     batch_dir.mkdir(parents=True, exist_ok=True)
+
+    head = args.head  # may be cleared below after freezing
+    if head and head.lower() == "none":
+        head = None
     if local_model is not None:
-        shutil.copy2(str(local_model), str(batch_dir / _MODEL_FILENAME))
+        if head:
+            frozen = _freeze_model(local_model, head, batch_dir / _FROZEN_MODEL_FILENAME)
+            shutil.copy2(str(frozen), str(batch_dir / _MODEL_FILENAME))
+            head = None  # frozen model is single-task, no head needed at runtime
+        else:
+            shutil.copy2(str(local_model), str(batch_dir / _MODEL_FILENAME))
         model_ref = f"../{_MODEL_FILENAME}"  # relative from job_dir to batch_dir
     shutil.copy2(str(_SCRIPT_DIR / "run_ase_job.py"), str(batch_dir / "run_ase_job.py"))
 
@@ -163,7 +187,7 @@ def cmd_prepare_md(args) -> dict:
             "job_type": "md",
             "structure_file": struct_file,
             "model_path": model_ref,
-            "head": args.head,
+            "head": head,
             "save_interval_steps": args.save_interval_steps,
             "traj_prefix": args.traj_prefix,
             "seed": args.seed,
@@ -227,8 +251,17 @@ def cmd_prepare_relax(args) -> dict:
     # One batch directory per prepare_relax call — model and runner are copied here once.
     batch_dir = work_dir / _job_id()
     batch_dir.mkdir(parents=True, exist_ok=True)
+
+    head = args.head  # may be cleared below after freezing
+    if head and head.lower() == "none":
+        head = None
     if local_model is not None:
-        shutil.copy2(str(local_model), str(batch_dir / _MODEL_FILENAME))
+        if head:
+            frozen = _freeze_model(local_model, head, batch_dir / _FROZEN_MODEL_FILENAME)
+            shutil.copy2(str(frozen), str(batch_dir / _MODEL_FILENAME))
+            head = None  # frozen model is single-task, no head needed at runtime
+        else:
+            shutil.copy2(str(local_model), str(batch_dir / _MODEL_FILENAME))
         model_ref = f"../{_MODEL_FILENAME}"  # relative from job_dir to batch_dir
     shutil.copy2(str(_SCRIPT_DIR / "run_ase_job.py"), str(batch_dir / "run_ase_job.py"))
 
@@ -244,7 +277,7 @@ def cmd_prepare_relax(args) -> dict:
             "job_type": "relax",
             "structure_file": struct_file,
             "model_path": model_ref,
-            "head": args.head,
+            "head": head,
             "force_tolerance": args.force_tolerance,
             "max_iterations": args.max_iterations,
             "relax_cell": args.relax_cell,
@@ -480,8 +513,9 @@ def main() -> None:
         "--frames", type=int, nargs="+", default=None,
         help="Frame indices to include (default: all).",
     )
-    p.add_argument("--head", type=str, default=None,
-                   help="Multi-task model head name (optional).")
+    p.add_argument("--head", type=str, default="Omat24",
+                   help="Multi-task model head to freeze (default: Omat24). "
+                        "Pass 'none' to skip freezing and use the model as-is.")
     p.add_argument("--save_interval_steps", type=int, default=100,
                    help="Write trajectory every N steps (default: 100).")
     p.add_argument("--traj_prefix", type=str, default="traj",
@@ -506,8 +540,9 @@ def main() -> None:
         "--frames", type=int, nargs="+", default=None,
         help="Frame indices to include (default: all).",
     )
-    p.add_argument("--head", type=str, default=None,
-                   help="Multi-task model head name (optional).")
+    p.add_argument("--head", type=str, default="Omat24",
+                   help="Multi-task model head to freeze (default: Omat24). "
+                        "Pass 'none' to skip freezing and use the model as-is.")
     p.add_argument("--force_tolerance", type=float, default=0.01,
                    help="Force convergence threshold in eV/Å (default: 0.01).")
     p.add_argument("--max_iterations", type=int, default=200,

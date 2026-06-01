@@ -70,8 +70,13 @@ import os
 import sys
 from pathlib import Path
 
+import warnings
+
 import numpy as np
 from ase import units
+
+warnings.filterwarnings("ignore", message="invalid value encountered in det",
+                        category=RuntimeWarning)
 from ase.io import read, write
 from ase.md.velocitydistribution import MaxwellBoltzmannDistribution
 from ase.optimize import BFGS
@@ -159,7 +164,7 @@ def _make_md_dynamics(atoms, stage):
         ), timestep_fs
 
     if mode in ("NPT-aniso", "NPT-tri"):
-        from ase.md.npt import NPT
+        from ase.md.melchionna import MelchionnaNPT as NPT
         if pressure is None:
             raise ValueError(f"'pressure' is required for {mode} mode.")
         mask = np.eye(3, dtype=bool) if mode == "NPT-aniso" else None

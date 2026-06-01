@@ -66,6 +66,9 @@ run_skill_script(
 )
 ```
 
+By default `--head` is `Omat24`, so the generated command includes `--model-branch Omat24`.
+Pass `--head none` to reinitialise the fitting net instead.
+
 ### 1c. Finetune a DPA model (multi-task)
 
 ```
@@ -113,12 +116,12 @@ dp freeze -o frozen_model.pb      # export frozen graph after training
 ### Finetuning — single-task
 
 ```bash
-# head=None → reinitialise fitting network
-dp --pt train input.json --finetune <model>.pt --use-pretrain-script
-
-# head specified → continue from an existing branch
+# Default (head=Omat24) → continue from the Omat24 branch
 dp --pt train input.json --finetune <model>.pt --use-pretrain-script \
-    --model-branch <head_name>
+    --model-branch Omat24
+
+# head=none → reinitialise fitting network
+dp --pt train input.json --finetune <model>.pt --use-pretrain-script
 ```
 
 ### Finetuning — multi-task
@@ -280,7 +283,7 @@ Use `remote_profile` with an `input_data` sub-object for Bohrium. Adjust `forwar
 
 ```json
 {
-  "command": "dp --pt train input.json --finetune DPA2.pt --use-pretrain-script",
+  "command": "dp --pt train input.json --finetune DPA2.pt --use-pretrain-script --model-branch Omat24",
   "task_work_path": "./train_001",
   "forward_files": ["input.json", "train_data", "valid_data", "DPA2.pt"],
   "backward_files": ["model.ckpt.pt", "input.json", "lcurve.out", "log", "err"]
