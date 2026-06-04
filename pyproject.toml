@@ -28,6 +28,11 @@ dependencies = [
     "bcrypt>=4.0.0"
 ]
 
+[project.optional-dependencies]
+bohr = [
+    "pydflow"
+]
+
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
