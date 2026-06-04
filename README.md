@@ -64,7 +64,7 @@ npm -v
 ### Install frontend dependencies
 
 ```bash
-cd web/vite-frontend
+cd web_frontends/vite
 npm install
 npm run dev
 ```
@@ -128,7 +128,7 @@ If you prefer different LLM models for sub-agents, you can override the default 
 A modern web UI with graph visualization, artifact upload/download, structure visualization, and scientific plotting. Start all three services (ADK API server, FastAPI middle layer, and Vite frontend) with a single script:
 
 ```bash
-bash script/start_matcreator.sh
+bash src/matcrreator/scripts/start_matcreator.sh
 ```
 
 This starts:
@@ -170,7 +170,7 @@ Each run creates a session directory under `<workspace>/sessions/<session-id>/` 
 #### Default adk web server (old style)
 
 ```bash
-matcreator run web
+matcreator run web_frontends
 ```
 This would set up the MatCreator agent network through the default `adk web` server. You can tune the LLM model and communication settings for the agents.
 

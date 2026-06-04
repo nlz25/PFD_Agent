@@ -5,13 +5,13 @@ Usage:
     matcreator [OPTIONS] COMMAND [ARGS]
 
 Commands:
-    web         Launch the ADK web UI.
+    web_frontends         Launch the ADK web_frontends UI.
     api-server  Launch the ADK API server (used by the Streamlit app).
     run         Run the agent non-interactively on a single prompt.
 
 Examples:
-    matcreator web
-    matcreator web --reload-agents --port 8080
+    matcreator web_frontends
+    matcreator web_frontends --reload-agents --port 8080
     matcreator api-server
     matcreator run -p "Build a silicon FCC structure"
     matcreator run -f prompt.txt --output-format json -o result.json
@@ -124,18 +124,18 @@ def main():
     """MatCreator CLI — manage and run the MatCreator agent."""
 
 
-@main.command("web")
+@main.command("web_frontends")
 @add_shared_options
 @click.option("--reload-agents", is_flag=True, default=False,
               help="Enable live reload when agent files change.")
 @click.option("--reload", is_flag=True, default=False,
               help="Enable auto-reload for the FastAPI server.")
 def web(host, port, workspace, log_level, verbose, reload_agents, reload):
-    """Launch the ADK web UI (browser-based chat interface)."""
+    """Launch the ADK web_frontends UI (browser-based chat interface)."""
     _setup_workspace(workspace)
 
     cmd = [
-        "adk", "web",
+        "adk", "web_frontends",
         str(AGENTS_DIR),
         "--host", host,
         "--port", str(port),
@@ -195,7 +195,7 @@ async def run_agent_async(
     from google.adk.runners import InMemoryRunner
     from google.genai import types
 
-    from agents.MatCreator.agent import app
+    from matcreator.agents.MatCreator import app
 
     runner = InMemoryRunner(app=app)
 
@@ -331,7 +331,7 @@ def knowledge_query(text, top_k, depth, workspace):
     """Query the memory knowledge graph for nodes matching TEXT."""
     _setup_workspace(workspace)
     _ensure_path(PROJECT_ROOT)
-    from agents.MatCreator.knowledge.query import query_knowledge_graph
+    from matcreator.agents.MatCreator import query_knowledge_graph
     result = query_knowledge_graph(text, depth=depth, top_k=top_k)
     click.echo(result)
 
@@ -346,7 +346,7 @@ def knowledge_search_skills(text, top_k, workspace):
     """Search for skill nodes semantically matching TEXT."""
     _setup_workspace(workspace)
     _ensure_path(PROJECT_ROOT)
-    from agents.MatCreator.knowledge.query import search_skills
+    from matcreator.agents.MatCreator import search_skills
     result = search_skills(text, top_k=top_k)
     click.echo(result)
 
@@ -363,7 +363,7 @@ def knowledge_related_skills(start_node, top_k, depth, workspace):
     """Traverse the dependency graph from a known skill START_NODE."""
     _setup_workspace(workspace)
     _ensure_path(PROJECT_ROOT)
-    from agents.MatCreator.knowledge.query import get_related_skills
+    from matcreator.agents.MatCreator import get_related_skills
     result = get_related_skills(start_node, top_k=top_k, depth=depth)
     click.echo(result)
 
@@ -375,7 +375,7 @@ def knowledge_stats(workspace):
     """Print node and edge counts for both skill and memory graphs."""
     _setup_workspace(workspace)
     _ensure_path(PROJECT_ROOT)
-    from agents.MatCreator.knowledge.query import _get_skill_kg, _get_memory_kg
+    from matcreator.agents.MatCreator import _get_skill_kg, _get_memory_kg
     s = _get_skill_kg().stats()
     m = _get_memory_kg().stats()
     click.echo("Skill graph (dev-maintained):")
@@ -395,7 +395,7 @@ def knowledge_seed(workspace):
     """Seed the knowledge graph with all SKILL.md and guide nodes."""
     _setup_workspace(workspace)
     _ensure_path(PROJECT_ROOT)
-    from agents.MatCreator.skill import seed_skills_to_graph
+    from matcreator.agents.MatCreator import seed_skills_to_graph
     result = seed_skills_to_graph()
     click.echo(f"Seeded {result['seeded']} nodes, {result['edges_created']} dependency edges created.")
 
