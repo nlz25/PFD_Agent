@@ -68,6 +68,13 @@ def load_skill(skill_name: str) -> dict:
             "available_skills": sorted(s.name for s in ALL_SKILLS),
         }
 
+    from ...config import get_disabled_skills
+    if skill.name in get_disabled_skills():
+        return {
+            "status": "error",
+            "message": f"Skill '{skill_name}' is disabled.",
+        }
+
     if skill.name in PLANNING_SKILL_NAMES:
         return {
             "status": "ok",

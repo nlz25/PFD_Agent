@@ -512,10 +512,13 @@ def get_related_skills(start_node: str, top_k: int = 5, depth: int = 2) -> str:
         for nid in top_ids:
             kg.increment_reference(nid)
 
+        from ..config import get_disabled_skills
+        disabled = set(get_disabled_skills())
+
         lines = []
         for nid in top_ids:
             node = kg.get_node(nid)
-            if not node:
+            if not node or node.name in disabled:
                 continue
             line = f"- **{node.name}**"
             if node.description:
