@@ -85,6 +85,7 @@ def _embed_texts_uncached(texts: list[str]) -> list[list[float]] | None:
             api_key=api_key,
             api_base=base_url,
             encoding_format="float",
+            drop_params=True,
         )
         return [item["embedding"] for item in response.data]
     except Exception as exc:
