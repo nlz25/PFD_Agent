@@ -230,6 +230,9 @@ __marimo__/
 *.upf
 *.UPF
 
+# User database
+users.db
+
 POT_GGA_PAW_PBE/
 
 # Front end

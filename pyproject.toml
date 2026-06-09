@@ -25,6 +25,7 @@ dependencies = [
     "pymatgen-analysis-diffusion",
     "mp-api",
     "bcrypt>=4.0.0"
+    "matcraft-kit"
 ]
 
 [build-system]
