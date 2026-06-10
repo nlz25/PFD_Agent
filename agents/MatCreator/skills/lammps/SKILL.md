@@ -10,12 +10,14 @@ description: >
   they want to use a classical potential instead. Bohrium's default DeepMD image
   (registry.dp.tech/dptech/deepmd-kit) already includes LAMMPS — no separate
   LAMMPS installation is needed. Covers structure conversion, input generation,
-  Bohrium submission via dpdisp, and result collection.
+  Bohrium submission via bohrium skill, and result collection.
 metadata:
   tools:
     - run_bash
     - run_python_file
+    - load_skill_resource
   dependent_skills:
+    - bohrium
     - dpdisp
   tags:
     - lammps
@@ -61,7 +63,8 @@ metadata:
 | Component | Role |
 |---|---|
 | `lammps_tools.py` | Generate `in.lammps` + `conf.lmp`; collect results |
-| `dpdisp` skill | Submit job directories to Bohrium / HPC |
+| `bohrium` skill | Submit job directories to Bohrium (recommended) |
+| `dpdisp` skill | Submit to Slurm/HPC clusters (alternative) |
 
 Every command prints JSON to stdout and exits 0 on success, 1 on error.
 
@@ -73,8 +76,11 @@ Every command prints JSON to stdout and exits 0 on success, 1 on error.
    If the user has no structure, generate one first using the `atomic-structure` skill.
 2. **Prepare job directory** — run `lammps_tools.py generate_input`. The model is
    resolved automatically from `DEEPMD_MODEL_PATH` and frozen with Omat24 head.
-3. **Submit jobs** — build `submission.template.json` and submit via `dpdisp-submit`.
-   Use `BOHRIUM_DEEPMD_IMAGE` as the container image (it includes LAMMPS).
+3. **Submit jobs** — use the `bohrium` skill for Bohrium platform submission.
+   For full submission details, see:
+   ```
+   load_skill_resource(skill_name="lammps", path="references/bohrium-submission.md")
+   ```
 4. **Collect results** — run `collect_results` after jobs finish.
 
 ---
@@ -179,63 +185,11 @@ Returns per-job summary: average temperature, pressure, potential energy, volume
 
 ## 3. Submit to Bohrium
 
-### Environment variables
+For Bohrium platform submission, use the `bohrium` skill. Full submission details
+including environment variables, JSON template, and submission commands are in:
 
-| Variable | Description |
-|---|---|
-| `BOHRIUM_EMAIL` | Bohrium account e-mail |
-| `BOHRIUM_PASSWORD` | Bohrium account password |
-| `BOHRIUM_PROJECT_ID` | Bohrium project ID |
-| `BOHRIUM_DEEPMD_MACHINE` | Machine type, e.g. `c32_m128_cpu` |
-| `BOHRIUM_DEEPMD_IMAGE` | Container image — **already includes LAMMPS**, default: `registry.dp.tech/dptech/deepmd-kit:3.1.3` |
-| `DEEPMD_MODEL_PATH` | Default pretrained DPA3 model path |
-
-> **The Bohrium DeepMD image includes LAMMPS.** Do NOT ask the user whether
-> LAMMPS is installed. Just use `BOHRIUM_DEEPMD_IMAGE` as the container image.
-
-### submission.template.json
-
-```json
-{
-  "work_base": "<job_dir>",
-  "machine": {
-    "batch_type": "Bohrium",
-    "context_type": "BohriumContext",
-    "local_root": ".",
-    "remote_profile": {
-      "email": "${BOHRIUM_EMAIL}",
-      "password": "${BOHRIUM_PASSWORD}",
-      "program_id": ${BOHRIUM_PROJECT_ID},
-      "input_data": {
-        "job_type": "container",
-        "log_file": "log",
-        "scass_type": "${BOHRIUM_DEEPMD_MACHINE}",
-        "platform": "ali",
-        "image_name": "${BOHRIUM_DEEPMD_IMAGE}"
-      }
-    }
-  },
-  "resources": { "group_size": 1 },
-  "task_list": [
-    {
-      "command": "lmp -in in.lammps",
-      "task_work_path": ".",
-      "forward_files": ["in.lammps", "conf.lmp", "frozen_model.pth"],
-      "backward_files": ["log.lammps", "traj.dump", "job_config.json", "log", "err"]
-    }
-  ]
-}
 ```
-
-### Submit
-
-```bash
-envsubst '${BOHRIUM_EMAIL} ${BOHRIUM_PASSWORD} ${BOHRIUM_PROJECT_ID} ${BOHRIUM_DEEPMD_MACHINE} ${BOHRIUM_DEEPMD_IMAGE}' \
-    < submission.template.json > submission.json
-
-uv run -m json.tool submission.json >/dev/null
-uvx --with dpdispatcher dargs check -f dpdispatcher.entrypoints.submit.submission_args submission.json
-uvx --from dpdispatcher --with oss2 dpdisp submit submission.json
+load_skill_resource(skill_name="lammps", path="references/bohrium-submission.md")
 ```
 
 ---
