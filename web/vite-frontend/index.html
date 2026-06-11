@@ -249,6 +249,23 @@
       </main>
     </div>
 
+    <!-- File preview modal -->
+    <div id="file-preview-modal" class="file-preview-overlay hidden">
+      <div class="file-preview-card">
+        <div class="file-preview-header">
+          <div>
+            <div class="eyebrow">Preview</div>
+            <div id="file-preview-title" class="file-preview-title">File</div>
+          </div>
+          <div class="file-preview-actions">
+            <a id="file-preview-download" class="ghost" href="#" download>Download</a>
+            <button class="ghost" id="file-preview-close" style="padding:4px 10px;font-size:13px">✕</button>
+          </div>
+        </div>
+        <div id="file-preview-body" class="file-preview-body"></div>
+      </div>
+    </div>
+
     <!-- Login overlay -->
     <div id="login-modal" class="login-overlay">
       <div class="login-card">

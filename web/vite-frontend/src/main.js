@@ -79,6 +79,15 @@ const colResizerGraph   = document.getElementById("col-resizer-graph");
 const colResizerSide    = document.getElementById("col-resizer-side");
 const colResizerFiles   = document.getElementById("col-resizer-files");
 const filesColToggleBtn = document.getElementById("files-col-toggle");
+const filePreviewModal  = document.getElementById("file-preview-modal");
+const filePreviewTitle  = document.getElementById("file-preview-title");
+const filePreviewBody   = document.getElementById("file-preview-body");
+const filePreviewClose  = document.getElementById("file-preview-close");
+const filePreviewDownload = document.getElementById("file-preview-download");
+const filePreviewCard = document.querySelector(".file-preview-card");
+const filePreviewHeader = document.querySelector(".file-preview-header");
+let filePreviewOverlayPointerDown = false;
+let filePreviewDrag = null;
 
 function autoResizeTextInput() {
   if (!textInput) return;
@@ -1533,6 +1542,59 @@ refreshSessionsBtn.addEventListener("click", (e) => { e.stopPropagation(); loadS
 
 document.getElementById("refresh-files").addEventListener("click", (e) => { e.stopPropagation(); refreshSessionFiles(); });
 
+filePreviewClose?.addEventListener("click", closeFilePreview);
+filePreviewCard?.addEventListener("click", (e) => e.stopPropagation());
+filePreviewHeader?.addEventListener("pointerdown", (e) => {
+  if (!filePreviewCard || e.target.closest(".file-preview-actions")) return;
+
+  const rect = filePreviewCard.getBoundingClientRect();
+  filePreviewCard.style.position = "fixed";
+  filePreviewCard.style.left = `${rect.left}px`;
+  filePreviewCard.style.top = `${rect.top}px`;
+  filePreviewCard.style.width = `${rect.width}px`;
+  filePreviewCard.style.height = `${rect.height}px`;
+
+  filePreviewDrag = {
+    pointerId: e.pointerId,
+    offsetX: e.clientX - rect.left,
+    offsetY: e.clientY - rect.top,
+    width: rect.width,
+    height: rect.height,
+  };
+  filePreviewHeader.setPointerCapture(e.pointerId);
+});
+filePreviewHeader?.addEventListener("pointermove", (e) => {
+  if (!filePreviewDrag || e.pointerId !== filePreviewDrag.pointerId || !filePreviewCard) return;
+
+  const maxLeft = Math.max(0, window.innerWidth - filePreviewDrag.width);
+  const maxTop = Math.max(0, window.innerHeight - filePreviewDrag.height);
+  const nextLeft = Math.min(Math.max(0, e.clientX - filePreviewDrag.offsetX), maxLeft);
+  const nextTop = Math.min(Math.max(0, e.clientY - filePreviewDrag.offsetY), maxTop);
+
+  filePreviewCard.style.left = `${nextLeft}px`;
+  filePreviewCard.style.top = `${nextTop}px`;
+});
+filePreviewHeader?.addEventListener("pointerup", (e) => {
+  if (filePreviewDrag?.pointerId === e.pointerId) {
+    filePreviewDrag = null;
+  }
+});
+filePreviewHeader?.addEventListener("pointercancel", () => {
+  filePreviewDrag = null;
+});
+filePreviewModal?.addEventListener("pointerdown", (e) => {
+  filePreviewOverlayPointerDown = e.target === filePreviewModal;
+});
+filePreviewModal?.addEventListener("click", (e) => {
+  if (filePreviewOverlayPointerDown && e.target === filePreviewModal) closeFilePreview();
+  filePreviewOverlayPointerDown = false;
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !filePreviewModal?.classList.contains("hidden")) {
+    closeFilePreview();
+  }
+});
+
 // ---------------------------------------------------------------------------
 // File path → API URL conversion
 // ---------------------------------------------------------------------------
@@ -1730,6 +1792,11 @@ function addAgentTimelineMessage(timeline, shownPlotPaths = null) {
 const STRUCTURE_EXTS = new Set([".cif", ".xyz", ".extxyz", ".vasp"]);
 const STRUCTURE_NAMES = new Set(["poscar", "contcar"]);
 const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".svg"]);
+const TEXT_PREVIEW_EXTS = new Set([
+  ".txt", ".md", ".markdown", ".json", ".log", ".csv", ".tsv", ".dat", ".raw", ".yaml", ".yml",
+  ".xml", ".html", ".css", ".js", ".py", ".sh", ".run", ".sub", ".ini", ".cfg", ".conf", ".out", ".err",
+]);
+const BINARY_PREVIEW_EXTS = new Set([".npy"]);
 
 function classifyPath(p) {
   const name = p.split("/").pop();
@@ -1738,6 +1805,173 @@ function classifyPath(p) {
   if (STRUCTURE_EXTS.has(ext) || STRUCTURE_NAMES.has(name.toLowerCase())) return "structure";
   if (IMAGE_EXTS.has(ext)) return "image";
   return "artifact";
+}
+
+function getPathExtension(p) {
+  const name = p.split("/").pop() || "";
+  const dotIdx = name.lastIndexOf(".");
+  return dotIdx >= 0 ? name.slice(dotIdx).toLowerCase() : "";
+}
+
+function canPreviewFile(path) {
+  const kind = classifyPath(path);
+  const ext = getPathExtension(path);
+  return kind === "image" || kind === "structure" || TEXT_PREVIEW_EXTS.has(ext) || BINARY_PREVIEW_EXTS.has(ext);
+}
+
+function parseNpyHeader(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const magic = [0x93, 0x4e, 0x55, 0x4d, 0x50, 0x59];
+  if (bytes.length < 10 || !magic.every((value, idx) => bytes[idx] === value)) {
+    throw new Error("Not a valid .npy file");
+  }
+
+  const major = bytes[6];
+  const minor = bytes[7];
+  const view = new DataView(buffer);
+  const headerLen = major === 1 ? view.getUint16(8, true) : view.getUint32(8, true);
+  const headerOffset = major === 1 ? 10 : 12;
+  const dataOffset = headerOffset + headerLen;
+  const header = new TextDecoder("latin1").decode(bytes.slice(headerOffset, dataOffset)).trim();
+  const descr = header.match(/'descr'\s*:\s*'([^']+)'/)?.[1] || "";
+  const fortranOrder = header.match(/'fortran_order'\s*:\s*(True|False)/)?.[1] === "True";
+  const shapeText = header.match(/'shape'\s*:\s*\(([^)]*)\)/)?.[1] || "";
+  const shape = shapeText
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map(Number);
+
+  return { version: `${major}.${minor}`, header, descr, fortranOrder, shape, dataOffset };
+}
+
+function npyValueReader(descr) {
+  const endian = descr[0];
+  const type = descr[1] || descr[0];
+  const size = Number(descr.slice(2) || (descr.startsWith("|") ? descr.slice(2) : ""));
+  const littleEndian = endian !== ">";
+
+  if (type === "f" && size === 8) return { bytes: size, read: (view, off) => view.getFloat64(off, littleEndian) };
+  if (type === "f" && size === 4) return { bytes: size, read: (view, off) => view.getFloat32(off, littleEndian) };
+  if (type === "i" && size === 4) return { bytes: size, read: (view, off) => view.getInt32(off, littleEndian) };
+  if (type === "i" && size === 2) return { bytes: size, read: (view, off) => view.getInt16(off, littleEndian) };
+  if (type === "i" && size === 1) return { bytes: size, read: (view, off) => view.getInt8(off) };
+  if (type === "u" && size === 4) return { bytes: size, read: (view, off) => view.getUint32(off, littleEndian) };
+  if (type === "u" && size === 2) return { bytes: size, read: (view, off) => view.getUint16(off, littleEndian) };
+  if (type === "u" && size === 1) return { bytes: size, read: (view, off) => view.getUint8(off) };
+  if (type === "i" && size === 8 && typeof DataView.prototype.getBigInt64 === "function") {
+    return { bytes: size, read: (view, off) => `${view.getBigInt64(off, littleEndian)}` };
+  }
+  if (type === "u" && size === 8 && typeof DataView.prototype.getBigUint64 === "function") {
+    return { bytes: size, read: (view, off) => `${view.getBigUint64(off, littleEndian)}` };
+  }
+  if (type === "b" && size === 1) return { bytes: size, read: (view, off) => Boolean(view.getUint8(off)) };
+  return null;
+}
+
+function renderNpyPreview(buffer) {
+  const meta = parseNpyHeader(buffer);
+  const total = meta.shape.reduce((acc, value) => acc * value, 1) || 0;
+  const lines = [
+    `NumPy .npy file`,
+    `version: ${meta.version}`,
+    `dtype: ${meta.descr || "unknown"}`,
+    `shape: (${meta.shape.join(", ")})`,
+    `fortran_order: ${meta.fortranOrder}`,
+    `data_offset: ${meta.dataOffset} bytes`,
+    "",
+  ];
+
+  const reader = npyValueReader(meta.descr);
+  if (!reader) {
+    lines.push("Preview: unsupported dtype for inline values.");
+    lines.push("");
+    lines.push("Header:");
+    lines.push(meta.header);
+    return lines.join("\n");
+  }
+
+  const available = Math.floor((buffer.byteLength - meta.dataOffset) / reader.bytes);
+  const valueCount = Math.min(total || available, available);
+  const view = new DataView(buffer, meta.dataOffset);
+  const values = [];
+  for (let i = 0; i < valueCount; i += 1) {
+    values.push(reader.read(view, i * reader.bytes));
+  }
+
+  lines.push(`Values (${valueCount} of ${total || available}):`);
+  lines.push(values.join(", "));
+  return lines.join("\n");
+}
+
+function closeFilePreview() {
+  filePreviewModal?.classList.add("hidden");
+  if (filePreviewBody) filePreviewBody.innerHTML = "";
+}
+
+async function openFilePreview(file) {
+  if (!filePreviewModal || !filePreviewBody || !filePreviewTitle || !filePreviewDownload) return;
+
+  const url = pathToApiUrl(file.path);
+  const ext = getPathExtension(file.path);
+  const kind = classifyPath(file.path);
+
+  filePreviewTitle.textContent = file.relpath || file.relname || file.name || file.path;
+  filePreviewDownload.href = url;
+  filePreviewDownload.download = file.relname || file.name || "";
+  filePreviewBody.innerHTML = '<div style="color:var(--muted);font-size:13px">Loading...</div>';
+  filePreviewModal.classList.remove("hidden");
+
+  if (kind === "image") {
+    const img = document.createElement("img");
+    img.className = "file-preview-image";
+    img.src = url;
+    img.alt = file.relname || file.name || "Preview";
+    filePreviewBody.innerHTML = "";
+    filePreviewBody.appendChild(img);
+    return;
+  }
+
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    if (ext === ".npy") {
+      const buffer = await resp.arrayBuffer();
+      const pre = document.createElement("pre");
+      pre.className = "file-preview-pre";
+      pre.textContent = renderNpyPreview(buffer);
+      filePreviewBody.innerHTML = "";
+      filePreviewBody.appendChild(pre);
+      return;
+    }
+
+    const text = await resp.text();
+    filePreviewBody.innerHTML = "";
+
+    if (ext === ".md" || ext === ".markdown") {
+      const div = document.createElement("div");
+      div.className = "file-preview-markdown";
+      div.innerHTML = marked.parse(text || "");
+      filePreviewBody.appendChild(div);
+      return;
+    }
+
+    const pre = document.createElement("pre");
+    pre.className = "file-preview-pre";
+    if (ext === ".json") {
+      try {
+        pre.textContent = JSON.stringify(JSON.parse(text), null, 2);
+      } catch (_) {
+        pre.textContent = text;
+      }
+    } else {
+      pre.textContent = text;
+    }
+    filePreviewBody.appendChild(pre);
+  } catch (err) {
+    filePreviewBody.innerHTML = `<div class="file-preview-error">Failed to preview file: ${err}</div>`;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1768,12 +2002,21 @@ function _createFileItem(f) {
   actions.className = "tree-actions";
 
   const dlLink = document.createElement("a");
-  dlLink.href = `/api/workspace/files?path=${encodeURIComponent(f.path)}`;
+  dlLink.href = pathToApiUrl(f.path);
   dlLink.download = f.relname;
   dlLink.className = "tree-btn";
   dlLink.title = "Download";
   dlLink.textContent = "↓";
   actions.appendChild(dlLink);
+
+  if (canPreviewFile(f.path)) {
+    const previewBtn = document.createElement("button");
+    previewBtn.className = "tree-btn";
+    previewBtn.title = "Preview";
+    previewBtn.textContent = "◉";
+    previewBtn.addEventListener("click", () => openFilePreview(f));
+    actions.appendChild(previewBtn);
+  }
 
   if (classifyPath(f.path) === "structure") {
     const viewBtn = document.createElement("button");
@@ -1781,7 +2024,7 @@ function _createFileItem(f) {
     viewBtn.title = "View 3D";
     viewBtn.textContent = "⬡";
     viewBtn.addEventListener("click", () =>
-      openViewer({ path: f.path, name: f.relname, url: `/api/workspace/files?path=${encodeURIComponent(f.path)}` })
+      openViewer({ path: f.path, name: f.relname, url: pathToApiUrl(f.path) })
     );
     actions.appendChild(viewBtn);
   }

@@ -735,6 +735,98 @@ details[open] > .tree-dir-summary::before { transform: rotate(90deg); }
 }
 .tree-btn:hover { background: rgba(255,255,255,0.15); }
 
+/* ── File preview modal ─────────────────────────────────── */
+.file-preview-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.62);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+  padding: 24px;
+}
+.file-preview-overlay.hidden { display: none; }
+.file-preview-card {
+  width: min(980px, 96vw);
+  height: min(760px, 88vh);
+  min-width: 420px;
+  min-height: 280px;
+  max-width: 96vw;
+  max-height: 88vh;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 20px 80px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  resize: both;
+}
+.file-preview-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: move;
+  user-select: none;
+}
+.file-preview-title {
+  font-size: 15px;
+  font-weight: 700;
+  max-width: 62vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  cursor: default;
+}
+.file-preview-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+.file-preview-pre {
+  margin: 0;
+  color: #dbeafe;
+  font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.file-preview-markdown {
+  color: var(--text);
+  line-height: 1.65;
+  font-size: 14px;
+}
+.file-preview-markdown pre {
+  overflow-x: auto;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28);
+}
+.file-preview-markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.file-preview-image {
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+  margin: 0 auto;
+  object-fit: contain;
+}
+.file-preview-error {
+  color: #f87171;
+  font-size: 13px;
+}
+
 /* ── JSON blocks in timeline ─────────────────────────────── */
 .json-block {
   font-size: 11px;
