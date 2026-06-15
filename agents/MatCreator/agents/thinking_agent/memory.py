@@ -21,8 +21,10 @@ from ...knowledge.query import (
     query_knowledge_graph as _query_knowledge_graph,
     save_to_knowledge_graph as _save_to_knowledge_graph,
     search_skills,
+    search_skill_context,
     get_related_skills,
 )
+from ...knowledge.review import talk_to_knowledge_graph_agent as _talk_to_knowledge_graph_agent
 from ...knowledge.synthesizer import run_knowledge_synthesizer as _run_synthesizer
 
 
@@ -61,6 +63,28 @@ def save_to_knowledge_graph(
         content,
         context=context,
         session_id=session_id,
+    )
+
+
+def talk_to_knowledge_graph_agent(
+    operation: str,
+    tool_context: ToolContext,
+    instructions: str = "",
+    batch_size: int = 5,
+) -> dict:
+    """Ask the policy-controlled Know-Do reviewer to review graph or memory.
+
+    Args:
+        operation: ``review_graph`` or ``review_memory``.
+        instructions: Optional focused review/distillation instructions.
+        batch_size: Maximum nodes to process in this operation.
+    """
+    session_id = tool_context.state.get("session_id", "default")
+    return _talk_to_knowledge_graph_agent(
+        operation,
+        instructions=instructions,
+        session_id=session_id,
+        batch_size=batch_size,
     )
 
 

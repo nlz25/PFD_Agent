@@ -433,10 +433,16 @@ def knowledge_migrate(workspace, memory_md):
     _ensure_path(PROJECT_ROOT)
     from agents.MatCreator.constants import KNOW_DO_GRAPH_DB
     from agents.MatCreator.knowledge.kdg_memory import iter_memory
-    from agents.MatCreator.knowledge.migrate import migrate_memory_md
-    from agents.MatCreator.knowledge.query import _get_kg, get_migration_result
+    from agents.MatCreator.knowledge.migrate import (
+        migrate_memory_md,
+        run_legacy_migration,
+    )
+    from agents.MatCreator.knowledge.query import (
+        _get_kg,
+        get_migration_result,
+    )
 
-    result = get_migration_result()
+    result = run_legacy_migration()
     click.echo(
         "Newly migrated from legacy sources: "
         f"{result.get('know_do_nodes', 0)} durable entries, "

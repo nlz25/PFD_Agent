@@ -1,14 +1,52 @@
-"""One-time migration: reads MEMORY.md and populates the knowledge graph."""
+"""Explicit migration helpers for legacy memory and graph sources."""
 
 from __future__ import annotations
 
 import logging
 import re
 
-from .kdg_memory import add_memory
+from .kdg_memory import (
+    add_memory,
+    migrate_kdg_database,
+    migrate_legacy_graphs,
+    migrate_legacy_memory_json,
+)
 from .query import _get_kg
 
 logger = logging.getLogger(__name__)
+
+
+def run_legacy_migration() -> dict[str, int]:
+    """Import legacy graph and memory sources into the active KDG database.
+
+    This is intentionally explicit. Normal runtime graph initialization must not
+    read legacy sources, even if those files still exist on disk.
+    """
+    from ..constants import (
+        KNOW_DO_MEMORY_DIR,
+        LEGACY_MEMORY_GRAPH_DB,
+        LEGACY_SKILL_GRAPH_DB,
+        LEGACY_UNIFIED_GRAPH_DB,
+        LEGACY_UNIFIED_MEMORY_DIR,
+    )
+    from . import query
+
+    graph = _get_kg()
+    unified = migrate_kdg_database(graph, LEGACY_UNIFIED_GRAPH_DB)
+    memories = 0
+    if LEGACY_UNIFIED_MEMORY_DIR.resolve() != KNOW_DO_MEMORY_DIR.resolve():
+        memories = migrate_legacy_memory_json(graph, LEGACY_UNIFIED_MEMORY_DIR)
+    legacy = migrate_legacy_graphs(
+        graph,
+        skill_db=LEGACY_SKILL_GRAPH_DB,
+        memory_db=LEGACY_MEMORY_GRAPH_DB,
+    )
+    query._migration_result = {
+        "know_do_nodes": unified["nodes"] + legacy["know_do_nodes"],
+        "memory_entries": memories + legacy["memory_entries"],
+        "edges": unified["edges"] + legacy["edges"],
+    }
+    return dict(query._migration_result)
 
 
 def migrate_memory_md(memory_path: str | None = None) -> dict:

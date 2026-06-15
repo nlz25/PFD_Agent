@@ -71,6 +71,9 @@ def upsert_entry(
     tags: Iterable[str] = (),
     aliases: Iterable[str] = (),
     metadata: EntryMetadata | None = None,
+    internal_refs: Iterable[str] | None = None,
+    scripts: Iterable[Any] | None = None,
+    assets: Iterable[Any] | None = None,
     similarity_threshold: float = 0.9,
 ) -> tuple[Entry, bool]:
     title = title.strip()
@@ -91,6 +94,9 @@ def upsert_entry(
                 tags=list(dict.fromkeys(tags)),
                 aliases=list(dict.fromkeys(aliases)),
                 metadata=metadata,
+                internal_refs=list(dict.fromkeys(internal_refs or [])),
+                scripts=list(scripts or []),
+                assets=list(assets or []),
             ),
             True,
         )
@@ -104,6 +110,18 @@ def upsert_entry(
         changes["aliases"] = merged_aliases
     if content and content != match.content:
         changes["content"] = content
+    if internal_refs is not None:
+        refs = list(dict.fromkeys(internal_refs))
+        if refs != match.internal_refs:
+            changes["internal_refs"] = refs
+    if scripts is not None:
+        scripts_list = list(scripts)
+        if scripts_list != match.scripts:
+            changes["scripts"] = scripts_list
+    if assets is not None:
+        assets_list = list(assets)
+        if assets_list != match.assets:
+            changes["assets"] = assets_list
     if metadata is not None:
         current = match.metadata.model_copy(deep=True)
         changes["metadata"] = current.model_copy(

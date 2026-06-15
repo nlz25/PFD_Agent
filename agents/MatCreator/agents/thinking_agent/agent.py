@@ -18,7 +18,17 @@ from .intent import validate_intent
 from .summarize import validate_summarize
 from .session_summary import write_session_summary
 from ...skill import ALL_SKILLS, PLANNING_SKILL_NAMES, ALL_SKILLS_TOOLSET, refresh_skills, seed_skills_to_graph
-from .memory import query_knowledge_graph, save_to_knowledge_graph, update_memory, read_memory, run_synthesizer, search_skills, get_related_skills
+from .memory import (
+    get_related_skills,
+    query_knowledge_graph,
+    read_memory,
+    run_synthesizer,
+    save_to_knowledge_graph,
+    search_skill_context,
+    search_skills,
+    talk_to_knowledge_graph_agent,
+    update_memory,
+)
 from ...tools.workspace_tools import (
     init_workspace_tool,
     run_bash,
@@ -236,10 +246,13 @@ You are MatCreator, an AI assistant for computational materials science.
 - Goal: {goal}
 
 ## How to work
-- ALWAYS call `run_flash_step` for computation, and SKILL execution.
-- Call `search_skills` / `load_skill` to DISCOVER or LOAD a SKILL.
-- Use `query_knowledge_graph` to retrieve relevant past knowledge.
+- Call `run_flash_step` for computation, or skill execution.
+  Multiple independent calls in one response turn run concurrently.
+- Call `search_skills` / `load_skill` to discover or load a skill.
+- Use `query_knowledge_graph` to retrieve L1/L2 planning knowledge and past memory.
+- After selecting a skill, call `search_skill_context` for its attached L3/L4 details.
 - After completing work, call `save_to_knowledge_graph` to persist key findings.
+- Use `talk_to_knowledge_graph_agent` only when the user requests graph or memory review.
 
 ## Rules
 - Be concise and responsive.
@@ -259,13 +272,20 @@ Your role here is **PLANNING ONLY**: you are responsible only for planning; all 
 ## Default workflow
 1. Determine the user's goal, then call `validate_intent` with your interpretation.
    Call `query_knowledge_graph` with the user's goal to retrieve relevant past knowledge and lessons.
-   Call `search_skills` to discover relevant skills and guides. Use `get_related_skills` to discover its dependencies.
-2. ALWAYS draft an execution graph, then call `validate_graph` to validate and commit it.
+   Call `search_skills` with the user's goal to discover relevant skills and guides.
+   After selecting an L1/L2 node, call `search_skill_context` to conditionally search
+   only that node's attached L3 heuristics and L4 constraints.
+   Use `get_related_skills` to discover its dependencies or closely related workflows.
+2. Always draft an execution graph, then call `validate_graph` to validate and commit it.
    Present the plan to the user as a Markdown table with columns:
    **Node ID | Label | Action | Depends On**
    (where "Depends On" lists predecessor node IDs, or "—" for root nodes).
 {confirmation_instruction}
-4. Once execution has fully completed, call `write_session_summary` with the global narrative. Use `save_to_knowledge_graph` to persist key lessons or findings.
+4. If the user asks to create or test a skill, call `request_skill_testing(description)`.
+5. After completing a node, use `save_to_knowledge_graph` to persist key lessons or findings.
+6. Once execution has fully completed, call `write_session_summary` with the global narrative.
+7. When the user requests knowledge review or memory modification, call
+   `talk_to_knowledge_graph_agent`. It enforces protected verification statuses.
 
 ## DAG Planning Guidelines
 - **Node IDs**: use descriptive snake_case prefixed with `step_`, e.g. `step_download_data`.
@@ -397,9 +417,11 @@ thinking_agent = LlmAgent(
         FunctionTool(resume_execution),
         FunctionTool(request_skill_testing),
         FunctionTool(search_skills),
+        FunctionTool(search_skill_context),
         FunctionTool(get_related_skills),
         FunctionTool(query_knowledge_graph),
         FunctionTool(save_to_knowledge_graph),
+        FunctionTool(talk_to_knowledge_graph_agent),
         FunctionTool(run_synthesizer),
         FunctionTool(read_memory),
         FunctionTool(update_memory),

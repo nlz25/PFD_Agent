@@ -86,9 +86,9 @@ To also import a specific `MEMORY.md`:
 matcreator knowledge migrate --memory-md /absolute/path/to/MEMORY.md
 ```
 
-Migration also runs automatically the first time MatCreator opens the unified
-graph. The explicit command is recommended because it prints the number of
-durable entries, memory nodes, and edges imported.
+Migration is explicit. MatCreator does not automatically import legacy graph or
+memory sources during normal startup, even if legacy files remain on disk. Use
+the command above when you intentionally want to import them.
 
 After migration, seed the current skills and guides:
 

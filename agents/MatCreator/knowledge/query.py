@@ -15,9 +15,6 @@ from know_do_graph import (
 from .kdg_memory import (
     add_memory,
     increment_usage,
-    migrate_kdg_database,
-    migrate_legacy_memory_json,
-    migrate_legacy_graphs,
 )
 from .review import (
     normalize_review_model,
@@ -70,33 +67,12 @@ def _configure_auto_review(graph: KnowDoGraph) -> None:
 def _get_kg() -> KnowDoGraph:
     global _graph, _migration_result
     if _graph is None:
-        from ..constants import (
-            KNOW_DO_GRAPH_DB,
-            KNOW_DO_MEMORY_DIR,
-            LEGACY_MEMORY_GRAPH_DB,
-            LEGACY_SKILL_GRAPH_DB,
-            LEGACY_UNIFIED_GRAPH_DB,
-            LEGACY_UNIFIED_MEMORY_DIR,
-        )
+        from ..constants import KNOW_DO_GRAPH_DB, KNOW_DO_MEMORY_DIR
 
         _graph = KnowDoGraph(path=KNOW_DO_GRAPH_DB, memory_dir=KNOW_DO_MEMORY_DIR)
-        unified = {"nodes": 0, "edges": 0}
-        if LEGACY_UNIFIED_GRAPH_DB.resolve() != KNOW_DO_GRAPH_DB.resolve():
-            unified = migrate_kdg_database(_graph, LEGACY_UNIFIED_GRAPH_DB)
-        memories = migrate_legacy_memory_json(_graph, LEGACY_UNIFIED_MEMORY_DIR)
-        legacy = migrate_legacy_graphs(
-            _graph,
-            skill_db=LEGACY_SKILL_GRAPH_DB,
-            memory_db=LEGACY_MEMORY_GRAPH_DB,
-        )
-        _migration_result = {
-            "know_do_nodes": unified["nodes"] + legacy["know_do_nodes"],
-            "memory_entries": memories + legacy["memory_entries"],
-            "edges": unified["edges"] + legacy["edges"],
-        }
+        _migration_result = {"know_do_nodes": 0, "memory_entries": 0, "edges": 0}
         _configure_auto_review(_graph)
     return _graph
-
 
 def get_migration_result() -> dict[str, int]:
     _get_kg()
@@ -111,7 +87,19 @@ _get_memory_kg = _get_kg
 def _format_durable(entries: list[Entry]) -> str:
     lines = []
     for entry in entries:
-        line = f"- **{entry.title}** [{entry.entry_type.value}]"
+        level = entry.metadata.skill_level
+        if level is None:
+            level = {
+                EntryType.capability: "L1",
+                EntryType.workflow: "L1",
+                EntryType.procedure: "L2",
+                EntryType.heuristic: "L3",
+                EntryType.constraint: "L4",
+            }.get(entry.entry_type)
+        elif hasattr(level, "value"):
+            level = level.value
+        label = f"{level} {entry.entry_type.value}" if level else entry.entry_type.value
+        line = f"- **{entry.title}** [{label}]"
         if entry.content:
             line += f": {entry.content}"
         lines.append(line)
@@ -128,21 +116,88 @@ def _format_memory(entries: list[Entry]) -> str:
     return "\n".join(lines)
 
 
+def _matches_attachment_query(*, query: str, text_parts: list[str]) -> bool:
+    if not query.strip():
+        return True
+    needle = query.casefold()
+    return any(needle in part.casefold() for part in text_parts if part)
+
+
+def _format_node_attachments(entry: Entry, *, query: str = "", top_k: int = 5) -> list[str]:
+    sections: list[str] = []
+    script_names = {script.filename for script in entry.scripts}
+
+    matching_assets = [
+        asset
+        for asset in entry.assets
+        if not (asset.kind == "script" and asset.filename in script_names)
+        if _matches_attachment_query(
+            query=query,
+            text_parts=[
+                asset.folder,
+                asset.filename,
+                asset.kind,
+                asset.description,
+                asset.content,
+            ],
+        )
+    ][:top_k]
+    if matching_assets:
+        lines = []
+        for asset in matching_assets:
+            path = f"{asset.folder}/{asset.filename}" if asset.folder else asset.filename
+            line = f"- **{path}** [{asset.kind}]"
+            if asset.content:
+                line += f": {asset.content}"
+            lines.append(line)
+        sections.append("### Attached Files\n" + "\n".join(lines))
+
+    matching_scripts = [
+        script
+        for script in entry.scripts
+        if _matches_attachment_query(
+            query=query,
+            text_parts=[script.filename, script.description, script.language, script.content],
+        )
+    ][:top_k]
+    if matching_scripts:
+        lines = []
+        for script in matching_scripts:
+            line = f"- **scripts/{script.filename}** [{script.language}]"
+            if script.content:
+                line += f": {script.content}"
+            lines.append(line)
+        sections.append("### Attached Scripts\n" + "\n".join(lines))
+
+    matching_refs = [
+        ref for ref in entry.internal_refs if _matches_attachment_query(query=query, text_parts=[ref])
+    ][:top_k]
+    if matching_refs:
+        sections.append("### Internal References\n" + "\n".join(f"- `{ref}`" for ref in matching_refs))
+
+    return sections
+
+
 def query_knowledge_graph(query: str, depth: int = 2, top_k: int = 15) -> str:
-    """Search durable Know-Do knowledge and frequently updated MemGraph entries."""
+    """Retrieve L1/L2 planning context and relevant working memory.
+
+    ``depth`` is retained for compatibility with older callers. L3/L4 entries
+    are intentionally not expanded here; use ``search_skill_context`` after
+    selecting an L1/L2 node.
+    """
+    del depth
     graph = _get_kg()
     try:
         durable = [
             entry
-            for entry in graph.search(query, limit=top_k * 2, mode="hybrid")
+            for entry in graph.plan(
+                query,
+                limit=max(top_k * 3, 20),
+                mode="hybrid",
+                include_procedures=True,
+            )
             if entry.entry_type != EntryType.memory
         ][:top_k]
-        candidates = {entry.id: entry for entry in durable}
-        if depth > 0:
-            for seed in durable:
-                for related in graph.related(seed.id, depth=depth):
-                    candidates.setdefault(related.id, related)
-        durable = list(candidates.values())[:top_k]
         for entry in durable:
             increment_usage(graph, entry)
 
@@ -161,9 +216,14 @@ def query_knowledge_graph(query: str, depth: int = 2, top_k: int = 15) -> str:
 
         sections = []
         if durable:
-            sections.append("### Know-Do Knowledge\n" + _format_durable(durable))
+            sections.append("### L1/L2 Planning Knowledge\n" + _format_durable(durable))
         if memory_entries:
             sections.append("### Working Memory\n" + _format_memory(memory_entries))
+        if durable:
+            sections.append(
+                "Select a planning node, then call `search_skill_context` to "
+                "conditionally retrieve its attached L3/L4 knowledge."
+            )
         return "\n\n".join(sections) or f"No knowledge graph entries found for '{query}'."
     except Exception as exc:
         logger.warning("query_knowledge_graph failed: %s", exc)
@@ -196,23 +256,21 @@ def save_to_knowledge_graph(
 
 
 def search_skills(query: str, top_k: int = 5) -> str:
-    """Search durable capabilities, procedures, workflows, and tools."""
+    """Search planner-level L1 capabilities/workflows and L2 procedures."""
     from ..config import get_disabled_skills
 
     graph = _get_kg()
     disabled = set(get_disabled_skills())
-    allowed = {
-        EntryType.capability,
-        EntryType.procedure,
-        EntryType.workflow,
-        EntryType.tool,
-    }
     try:
         results = [
             entry
-            for entry in graph.search(query, limit=max(top_k * 3, 15), mode="hybrid")
-            if entry.entry_type in allowed
-            and "matcreator-skill" in entry.tags
+            for entry in graph.plan(
+                query,
+                limit=max(top_k * 4, 20),
+                mode="hybrid",
+                include_procedures=True,
+            )
+            if "matcreator-skill" in entry.tags
             and entry.title not in disabled
         ][:top_k]
         for entry in results:
@@ -221,6 +279,79 @@ def search_skills(query: str, top_k: int = 5) -> str:
     except Exception as exc:
         logger.warning("search_skills failed: %s", exc)
         return f"Skill search failed: {exc}"
+
+
+def search_skill_context(
+    skill: str,
+    query: str = "",
+    include_heuristics: bool = True,
+    include_constraints: bool = True,
+    top_k: int = 5,
+) -> str:
+    """Conditionally search L3/L4 nodes attached to a selected L1/L2 node.
+
+    The candidate pool is scoped by ``heuristic_for``, ``constraint_on``, and
+    ``warning_about`` edges before ranking, so unrelated L3/L4 nodes cannot leak
+    into the result.
+    """
+    graph = _get_kg()
+    try:
+        start = graph.get(skill)
+        if start is None:
+            matches = graph.plan(
+                skill,
+                limit=1,
+                mode="hybrid",
+                include_procedures=True,
+            )
+            start = matches[0] if matches else None
+        if start is None:
+            return f"No L1/L2 node found matching '{skill}'."
+
+        sections = [f"### Selected Node\n{_format_durable([start])}"]
+        used_entries: list[Entry] = []
+        attached = graph.count_attached(start.id)
+
+        if include_heuristics and attached.get("heuristics", 0) > 0:
+            heuristics, total = graph.search_attached(
+                start.id,
+                kind="heuristics",
+                query=query,
+                limit=top_k,
+                mode="hybrid",
+            )
+            if heuristics:
+                sections.append(
+                    f"### Attached L3 Heuristics ({len(heuristics)}/{total})\n"
+                    + _format_durable(heuristics)
+                )
+                used_entries.extend(heuristics)
+        if include_constraints and attached.get("constraints", 0) > 0:
+            constraints, total = graph.search_attached(
+                start.id,
+                kind="constraints",
+                query=query,
+                limit=top_k,
+                mode="hybrid",
+            )
+            if constraints:
+                sections.append(
+                    f"### Attached L4 Constraints ({len(constraints)}/{total})\n"
+                    + _format_durable(constraints)
+                )
+                used_entries.extend(constraints)
+
+        for entry in used_entries:
+            increment_usage(graph, entry)
+
+        sections.extend(_format_node_attachments(start, query=query, top_k=top_k))
+
+        if len(sections) == 1:
+            sections.append("No attached L3/L4 context matched the requested scope.")
+        return "\n\n".join(sections)
+    except Exception as exc:
+        logger.warning("search_skill_context failed: %s", exc)
+        return f"Conditional skill context search failed: {exc}"
 
 
 def get_related_skills(start_node: str, top_k: int = 5, depth: int = 2) -> str:

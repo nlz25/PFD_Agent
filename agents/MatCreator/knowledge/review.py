@@ -48,6 +48,74 @@ def normalize_review_model(model: str) -> str:
     return model.split("/", 1)[1] if "/" in model else model
 
 
+def talk_to_knowledge_graph_agent(
+    operation: str,
+    instructions: str = "",
+    session_id: str | None = None,
+    batch_size: int = 5,
+) -> dict[str, Any]:
+    """Run a policy-controlled graph or memory review agent operation.
+
+    Supported operations are ``review_graph`` and ``review_memory``. Durable
+    nodes marked peer-reviewed or community-tested are protected from mutation
+    by the enforced review policy.
+    """
+    from ..constants import GRAPH_AGENT_MODEL, LLM_API_KEY, LLM_BASE_URL
+    from .query import _get_kg
+
+    normalized_operation = operation.strip().lower()
+    if normalized_operation not in {"review_graph", "review_memory"}:
+        return {
+            "status": "error",
+            "message": "operation must be 'review_graph' or 'review_memory'.",
+        }
+    if batch_size <= 0:
+        return {"status": "error", "message": "batch_size must be greater than zero."}
+
+    graph = _get_kg()
+    model = normalize_review_model(
+        os.environ.get("REVIEW_AGENT_MODEL")
+        or os.environ.get("GRAPH_AGENT_MODEL", GRAPH_AGENT_MODEL)
+    )
+    api_key = (
+        os.environ.get("LLM_API_KEY")
+        or LLM_API_KEY
+        or os.environ.get("MINIMAX_API_KEY", "")
+    )
+    base_url = (
+        os.environ.get("LLM_BASE_URL")
+        or LLM_BASE_URL
+        or os.environ.get("MINIMAX_API_BASE")
+        or None
+    )
+
+    try:
+        session = graph.chat(
+            agent="reviewer",
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            batch_size=batch_size,
+            policy=review_policy(),
+            strategy=os.environ.get("MATCREATOR_REVIEW_STRATEGY", "auto"),
+        )
+        if normalized_operation == "review_memory":
+            result = session.review_memory(
+                session_id=session_id,
+                instructions=instructions,
+            )
+        else:
+            result = session.review_nodes(instructions=instructions)
+        graph.refresh()
+        return result
+    except Exception as exc:
+        return {
+            "status": "error",
+            "operation": normalized_operation,
+            "message": f"Know-Do Graph agent failed: {exc}",
+        }
+
+
 def count_unreviewed_durable_nodes(
     graph: KnowDoGraph,
     *,

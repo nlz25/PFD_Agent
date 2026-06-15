@@ -229,7 +229,15 @@ Skills and guides are seeded as durable entries. Agent writes first land in
 MemGraph; repeated successful observations are later distilled into validated
 Know-Do heuristics and linked to the capabilities they improve. Existing
 `skill_graph.db`, `memory_graph.db`, old JSON traces, and `MEMORY.md` data can be migrated
-idempotently. See [docs/knowledge_graph.md](docs/knowledge_graph.md).
+idempotently through `matcreator knowledge migrate`. Normal runtime startup does
+not load legacy sources automatically. See [docs/knowledge_graph.md](docs/knowledge_graph.md).
+
+Retrieval is progressive: MatCreator first searches L1 capabilities/workflows
+and L2 procedures, then conditionally searches only the selected node's attached
+L3 heuristics and L4 constraints. The planning agent can also invoke the
+policy-controlled Know-Do reviewer for graph review or session-memory
+distillation. Nodes marked `peer_reviewed` or `community_tested` are protected
+from mutation during these reviews.
 
 ## Graph-Based Planning
 
