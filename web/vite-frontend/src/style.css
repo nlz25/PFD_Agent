@@ -568,6 +568,51 @@ details.panel-block:not([open]) > summary.block-header::after { transform: rotat
   margin-top: 2px;
 }
 
+/* ── File viewer modal ───────────────────────────────────── */
+.file-viewer-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: min(90vw, 960px);
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.fv-content {
+  flex: 1;
+  overflow: auto;
+  background: rgba(6, 8, 15, 0.5);
+  border-top: 1px solid var(--border);
+}
+
+.fv-pre {
+  margin: 0;
+  padding: 16px 20px;
+  font-family: var(--mono, monospace);
+  font-size: 0.82rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-all;
+  tab-size: 2;
+  color: var(--text);
+}
+
+.fv-img-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  min-height: 200px;
+}
+
+.fv-img-wrap img {
+  max-width: 100%;
+  max-height: 70vh;
+  border-radius: 4px;
+}
+
 /* ── Login overlay ───────────────────────────────────────── */
 .login-overlay {
   position: fixed;

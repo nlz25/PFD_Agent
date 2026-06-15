@@ -23,6 +23,7 @@ const state = {
   isSending: false,
   sendController: null,
   agentMode: localStorage.getItem(AGENT_MODE_KEY) || "normal",
+  customWorkdir: "",
 };
 
 // ---------------------------------------------------------------------------
@@ -1574,7 +1575,8 @@ document.getElementById("refresh-files").addEventListener("click", (e) => { e.st
 // ---------------------------------------------------------------------------
 
 function pathToApiUrl(path) {
-  return `/api/workspace/files?path=${encodeURIComponent(path)}`;
+  const sid = state.sessionId ? `&session_id=${encodeURIComponent(state.sessionId)}` : "";
+  return `/api/workspace/files?path=${encodeURIComponent(path)}${sid}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1817,7 +1819,16 @@ function _createFileItem(f) {
     viewBtn.title = "View 3D";
     viewBtn.textContent = "⬡";
     viewBtn.addEventListener("click", () =>
-      openViewer({ path: f.path, name: f.relname, url: `/api/workspace/files?path=${encodeURIComponent(f.path)}` })
+      openViewer({ path: f.path, name: f.relname, url: pathToApiUrl(f.path) })
+    );
+    actions.appendChild(viewBtn);
+  } else {
+    const viewBtn = document.createElement("button");
+    viewBtn.className = "tree-btn";
+    viewBtn.title = "View";
+    viewBtn.textContent = "👁";
+    viewBtn.addEventListener("click", () =>
+      openFileViewer({ path: f.path, name: f.relname })
     );
     actions.appendChild(viewBtn);
   }
@@ -2090,11 +2101,11 @@ async function createSession() {
     const resp = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        state.agentMode === "normal"
-          ? {}
-          : { agent_mode: state.agentMode, ...(state.agentMode === "bench" ? { benchmark_mode: true } : {}) }
-      ),
+      body: JSON.stringify({
+        ...(state.agentMode !== "normal" ? { agent_mode: state.agentMode } : {}),
+        ...(state.agentMode === "bench" ? { benchmark_mode: true } : {}),
+        ...(state.customWorkdir ? { custom_workdir: state.customWorkdir } : {}),
+      }),
     });
     if (!resp.ok) {
       console.error(`Failed to create session: HTTP ${resp.status}`, await resp.text());
@@ -2313,6 +2324,14 @@ async function loadSession(sessionId) {
     }
 
     await refreshSessionFiles();
+
+    // Update workdir display in file explorer
+    const workdirDisplay = document.getElementById("session-workdir-display");
+    if (workdirDisplay) {
+      const workdir = sessionData.state?.workdir || sessionData.state?.custom_workdir || state.defaultWorkdir || "";
+      workdirDisplay.textContent = workdir;
+      workdirDisplay.style.display = workdir ? "" : "none";
+    }
   } catch (err) {
     console.error("Failed to load session:", err);
   }
@@ -2440,6 +2459,10 @@ async function sendMessage(message) {
     return;
   }
 
+  // Clear any stale cancellation flag left over from a previous stop so that
+  // step executors launched in this new run don't abort immediately.
+  try { await fetch(`/api/sessions/${state.sessionId}/cancel`, { method: "DELETE" }); } catch (_) {}
+
   const uploadsForMessage = state.currentUploads.slice();
   addMessage("user", messageWithUploadNames(message, uploadsForMessage));
   const backendMessage = messageWithUploadContext(message, uploadsForMessage);
@@ -2565,7 +2588,7 @@ async function openViewer(item) {
   svMeta.textContent = "";
 
   try {
-    const resp = await fetch(`/api/structure/view?path=${encodeURIComponent(item.path)}`);
+    const resp = await fetch(`/api/structure/view?path=${encodeURIComponent(item.path)}&session_id=${encodeURIComponent(state.sessionId || "")}`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
 
@@ -2611,6 +2634,61 @@ svClose.addEventListener("click", () => {
   syncPanelResizerVisibility();
   state.structure3dViewer = null;
   svCanvas.innerHTML = "";
+});
+
+// ---------------------------------------------------------------------------
+// File viewer
+// ---------------------------------------------------------------------------
+
+async function openFileViewer(file) {
+  const modal = document.getElementById("file-viewer-modal");
+  const content = document.getElementById("fv-content");
+  const filenameEl = document.getElementById("fv-filename");
+  if (!modal) return;
+
+  filenameEl.textContent = file.name;
+  content.innerHTML = '<p style="color:var(--muted);padding:16px 20px">Loading…</p>';
+  modal.classList.remove("hidden");
+
+  const type = classifyPath(file.path);
+  const url = pathToApiUrl(file.path);
+
+  if (type === "image") {
+    const wrap = document.createElement("div");
+    wrap.className = "fv-img-wrap";
+    const img = document.createElement("img");
+    img.src = url;
+    img.alt = file.name;
+    wrap.appendChild(img);
+    content.innerHTML = "";
+    content.appendChild(wrap);
+    return;
+  }
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    if (text.includes("\0")) {
+      content.innerHTML = '<p style="color:var(--muted);padding:16px 20px">Binary file — cannot preview.</p>';
+      return;
+    }
+    const pre = document.createElement("pre");
+    pre.className = "fv-pre";
+    pre.textContent = text;
+    content.innerHTML = "";
+    content.appendChild(pre);
+  } catch (err) {
+    content.innerHTML = `<p style="color:#f87171;padding:16px 20px">Failed to load: ${err.message}</p>`;
+  }
+}
+
+document.getElementById("fv-close")?.addEventListener("click", () => {
+  document.getElementById("file-viewer-modal")?.classList.add("hidden");
+});
+document.getElementById("file-viewer-modal")?.addEventListener("click", (e) => {
+  if (e.target === e.currentTarget)
+    e.currentTarget.classList.add("hidden");
 });
 
 initPanelResizers();
@@ -2695,7 +2773,12 @@ if (modeSelector) {
   });
 }
 
-resetBtn.addEventListener("click", async () => {
+resetBtn.addEventListener("click", () => {
+  _doNewSession(state.defaultWorkdir || "");
+});
+
+async function _doNewSession(customWorkdir) {
+  state.customWorkdir = customWorkdir;
   state.sessionId = `session-${Math.floor(Date.now() / 1000)}`;
   state.activeSessionUserId = state.userId;
   state.sessionReady = false;
@@ -2708,7 +2791,7 @@ resetBtn.addEventListener("click", async () => {
   planGraph.reset();
   hidePlanGraph();
   await createSession();
-});
+}
 
 // ---------------------------------------------------------------------------
 // Settings panel
@@ -2979,6 +3062,11 @@ async function loadSettingsData() {
     const envCfg = envRes.ok ? await envRes.json() : {};
     const extraSkills = new Set((cfg.planning || {}).extra_skills || []);
 
+    // Populate default workdir from config
+    state.defaultWorkdir = (cfg.workspace || {}).default_workdir || "";
+    const wdInput = document.getElementById("settings-default-workdir");
+    if (wdInput) wdInput.value = state.defaultWorkdir;
+
     const roots = _buildSkillTree(skills);
     skillsChecklist.innerHTML = "";
 
@@ -3064,6 +3152,7 @@ async function saveSettings() {
           planning: { extra_skills: extraSkills },
           skills: { disabled: disabledSkills },
           user: username ? { name: username } : undefined,
+          workspace: { default_workdir: document.getElementById("settings-default-workdir")?.value?.trim() || "" },
         }),
       }),
     ];
@@ -3145,6 +3234,10 @@ if (settingsBtn) settingsBtn.addEventListener("click", openSettingsModal);
 if (settingsClose) settingsClose.addEventListener("click", closeSettingsModal);
 if (settingsSave) settingsSave.addEventListener("click", saveSettings);
 if (settingsRestartBtn) settingsRestartBtn.addEventListener("click", restartBackend);
+document.getElementById("settings-workdir-reset")?.addEventListener("click", () => {
+  const wdInput = document.getElementById("settings-default-workdir");
+  if (wdInput) wdInput.value = "";
+});
 settingsModal?.addEventListener("click", (e) => {
   if (e.target === settingsModal) closeSettingsModal();
 });

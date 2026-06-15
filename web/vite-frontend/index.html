@@ -239,11 +239,14 @@
           <div class="file-explorer-header">
             <div>
               <div class="eyebrow">Files</div>
-              <h2>Session Files</h2>
+              <h2>Workspace Files</h2>
             </div>
             <button class="ghost" id="refresh-files" style="font-size:11px" title="Refresh files">↺</button>
           </div>
           <div class="file-explorer-body">
+            <div id="session-workdir-display"
+                 style="font-size:0.72rem;color:var(--muted);font-family:monospace;
+                        word-break:break-all;padding:0 4px 6px;display:none"></div>
             <ul class="artifact-list" id="session-files-tree">
               <li class="empty">No files yet</li>
             </ul>
@@ -312,6 +315,16 @@
               <span id="settings-password-msg" role="status" style="display:block;margin-top:6px;font-size:0.8rem;min-height:1.2em"></span>
             </div>
             <button id="settings-logout-btn" class="ghost" style="margin-top:16px;width:100%;justify-content:center;color:#f87171;border:1px solid #f8717144">Log out</button>
+            <div style="margin-top:20px;border-top:1px solid #ffffff18;padding-top:16px">
+              <label class="settings-label">Default Workdir</label>
+              <p class="settings-hint">Used as the working directory for every new session. Leave empty to use the global workspace default.</p>
+              <div style="display:flex;gap:6px;align-items:center">
+                <input id="settings-default-workdir" class="text-input"
+                       placeholder="(leave empty for workspace default)"
+                       style="flex:1;font-family:monospace;font-size:0.85rem" />
+                <button id="settings-workdir-reset" class="ghost" style="white-space:nowrap;padding:6px 10px;font-size:0.8rem" title="Reset to workspace default">Reset</button>
+              </div>
+            </div>
           </div>
           <div class="settings-pane hidden" id="tab-skills">
             <p class="settings-hint">
@@ -357,6 +370,20 @@
           <button class="ghost" id="settings-restart-btn" title="Restart the ADK backend to apply credential changes">↺ Restart Backend</button>
           <button class="send-btn" id="settings-save" style="justify-content:center">Save</button>
         </div>
+      </div>
+    </div>
+
+    <!-- File viewer modal -->
+    <div id="file-viewer-modal" class="settings-overlay hidden">
+      <div class="file-viewer-card">
+        <div class="settings-header">
+          <div>
+            <div class="eyebrow">File Viewer</div>
+            <div id="fv-filename" style="font-size:0.85rem;font-family:monospace;color:var(--text);word-break:break-all"></div>
+          </div>
+          <button class="ghost" id="fv-close" style="padding:4px 10px;font-size:13px">✕</button>
+        </div>
+        <div id="fv-content" class="fv-content"></div>
       </div>
     </div>
 

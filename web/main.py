@@ -41,35 +41,34 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-# Allow importing from agents/ and src/ when running as script
+# Allow importing users_db from the web/ directory
 ROOT = Path(__file__).parent.parent
 _WEB_DIR = Path(__file__).parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 if str(_WEB_DIR) not in sys.path:
     sys.path.insert(0, str(_WEB_DIR))
 
 import users_db  # noqa: E402
 
-from agents.MatCreator.workspace import get_session_workdir, get_workspace_root, workspace_skills_dir  # noqa: E402
-from agents.MatCreator.agents.cancellation import (  # noqa: E402
+from matcreator.workspace import get_session_workdir, get_workspace_root, workspace_skills_dir  # noqa: E402
+from matcreator.agents.cancellation import (  # noqa: E402
     request_cancellation,
     is_cancellation_requested,
     get_cancellation_reason,
     clear_cancellation,
     request_step_cancellation,
 )
-from agents.MatCreator.agents.graph_logger import AgentGraphLogger  # noqa: E402
-from agents.MatCreator.skill import ALL_SKILLS, PLANNING_SKILL_NAMES, refresh_skills, get_default_skill_names  # noqa: E402
-from agents.MatCreator.config import load_config, save_config, get_disabled_skills  # noqa: E402
-from agents.MatCreator.config import ENV_TO_YAML, YAML_TO_ENV, SENSITIVE_YAML_KEYS  # noqa: E402
-from agents.MatCreator.constants import GRAPH_AGENT_MODEL  # noqa: E402
-from agents.MatCreator.knowledge.query import _get_kg  # noqa: E402
-from agents.MatCreator.knowledge.review import run_review_pipeline  # noqa: E402
+from matcreator.agents.graph_logger import AgentGraphLogger  # noqa: E402
+from matcreator.skill import ALL_SKILLS, PLANNING_SKILL_NAMES, refresh_skills, get_default_skill_names  # noqa: E402
+from matcreator.config import load_config, save_config, get_disabled_skills  # noqa: E402
+from matcreator.config import ENV_TO_YAML, YAML_TO_ENV, SENSITIVE_YAML_KEYS  # noqa: E402
+from matcreator.constants import GRAPH_AGENT_MODEL  # noqa: E402
+from matcreator.knowledge.query import _get_kg  # noqa: E402
+from matcreator.knowledge.review import run_review_pipeline  # noqa: E402
 
 app = FastAPI(title="MatCreator Graph API", version="1.0.0")
 APP_NAME = "MatCreator"
-SESSION_DB_PATH = ROOT / "agents" / "MatCreator" / ".adk" / "session.db"
+SESSION_DB_PATH = Path("~/.matcreator/.adk/session.db").expanduser()
+_ADK_DIR = Path("~/.matcreator/.adk").expanduser()
 DEFAULT_ADMIN_USERS = {"admin"}
 
 app.add_middleware(
@@ -79,7 +78,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-ENV_PATH = ROOT / "agents" / "MatCreator" / ".env"
+ENV_PATH = Path("~/.matcreator/.env").expanduser()
 _SENSITIVE_FIELDS = frozenset({"LLM_API_KEY", "BOHRIUM_PASSWORD"})
 _ENV_FIELDS = [
     "LLM_MODEL", "LLM_API_KEY", "LLM_BASE_URL", "EMBEDDING_MODEL",
@@ -213,11 +212,11 @@ def ensure_worker_running(user_id: str) -> int:
             ports={"8000/tcp": port},
             volumes={
                 str(session_dir): {
-                    "bind": "/app/agents/MatCreator/.adk",
+                    "bind": "/root/.matcreator/.adk",
                     "mode": "rw",
                 },
                 str(_SESSIONS_HOST_ROOT / user_id / "workspace"): {
-                    "bind": "/app/agents/MatCreator/.workspace",
+                    "bind": "/root/.matcreator/workspace",
                     "mode": "rw",
                 },
             },
@@ -529,13 +528,51 @@ def _load_json_field(raw_value: str | None, fallback):
 
 
 def _load_agent_graph_data(session_id: str) -> dict:
-    graph_path = get_workspace_root() / "agent_graphs" / f"{session_id}.json"
+    graph_path = _ADK_DIR / "agent_graphs" / f"{session_id}.json"
     if not graph_path.exists():
         return {}
     try:
         return json.loads(graph_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {}
+
+
+def _get_workdir_for_session(session_id: str) -> Path:
+    """Resolve workdir for a session, preferring the value stored in session state.
+
+    Priority: state["workdir"] → state["custom_workdir"] → computed default.
+    In server mode, custom paths outside WORKSPACE_ROOT are rejected.
+    """
+    if SESSION_DB_PATH.exists():
+        try:
+            with sqlite3.connect(SESSION_DB_PATH) as conn:
+                row = conn.execute(
+                    "SELECT state FROM sessions WHERE app_name = ? AND id = ?",
+                    (APP_NAME, session_id),
+                ).fetchone()
+                if row:
+                    s = _load_json_field(row[0], {})
+                    path_str = s.get("workdir") or s.get("custom_workdir")
+                    if path_str:
+                        candidate = Path(path_str).expanduser().resolve()
+                        if _MATCREATOR_MODE == "server":
+                            ws_root = get_workspace_root().resolve()
+                            if candidate.is_relative_to(ws_root):
+                                return candidate
+                        else:
+                            return candidate
+        except sqlite3.Error:
+            pass
+    # Fall back to config.yaml default_workdir before using WORKSPACE_ROOT
+    cfg_workdir = (load_config().get("workspace") or {}).get("default_workdir") or ""
+    if cfg_workdir:
+        candidate = Path(cfg_workdir).expanduser().resolve()
+        if _MATCREATOR_MODE == "server":
+            if candidate.is_relative_to(get_workspace_root().resolve()):
+                return candidate
+        else:
+            return candidate
+    return get_session_workdir(session_id)
 
 
 def _safe_upload_filename(filename: str) -> str:
@@ -806,7 +843,7 @@ async def list_all_sessions(user_id: str = Query(..., description="Current signe
 
 @app.delete("/api/sessions/{session_id}")
 async def delete_session(session_id: str) -> JSONResponse:
-    """Delete a session and all associated data."""
+    """Delete a session and all associated metadata. Workspace files are not deleted."""
     # 1. Delete from session DB (events cascade-deleted via FK)
     if SESSION_DB_PATH.exists():
         try:
@@ -825,20 +862,17 @@ async def delete_session(session_id: str) -> JSONResponse:
         del summaries[session_id]
         _save_summaries(summaries)
 
-    # 3. Delete associated files/directories
+    # 3. Delete session-scoped metadata artifacts (not workspace files)
     workspace = get_workspace_root()
     targets = [
-        workspace / "agent_graphs" / f"{session_id}.json",
-        workspace / "sessions" / session_id,           # recursive dir
+        _ADK_DIR / "agent_graphs" / f"{session_id}.json",
         workspace / "trajectories" / f"{session_id}.jsonl",
         workspace / "trajectories" / f"{session_id}_summary.json",
         workspace / "cancellation" / f"{session_id}.flag",
     ]
     for target in targets:
         try:
-            if target.is_dir():
-                shutil.rmtree(target)
-            elif target.is_file():
+            if target.is_file():
                 target.unlink()
         except OSError:
             pass  # best-effort cleanup
@@ -887,11 +921,17 @@ async def get_agent_graph(session_id: str) -> JSONResponse:
 
 
 @app.get("/api/workspace/files")
-async def serve_workspace_file(path: str = Query(..., description="Absolute or workspace-relative file path")) -> FileResponse:
+async def serve_workspace_file(
+    path: str = Query(..., description="Absolute or workspace-relative file path"),
+    session_id: str = Query(default="", description="Session ID to resolve custom workdir boundaries"),
+) -> FileResponse:
     ws_root = get_workspace_root().resolve()
     p = Path(path)
     resolved = p.resolve() if p.is_absolute() else (ws_root / p).resolve()
-    if not resolved.is_relative_to(ws_root):
+    allowed = ws_root
+    if session_id:
+        allowed = _get_workdir_for_session(session_id).resolve()
+    if not resolved.is_relative_to(allowed) and not resolved.is_relative_to(ws_root):
         raise HTTPException(status_code=403, detail="Access denied: path is outside workspace")
     if not resolved.is_file():
         raise HTTPException(status_code=404, detail="File not found")
@@ -899,7 +939,10 @@ async def serve_workspace_file(path: str = Query(..., description="Absolute or w
 
 
 @app.get("/api/structure/view")
-async def view_structure(path: str = Query(..., description="Absolute or workspace-relative structure file path")) -> JSONResponse:
+async def view_structure(
+    path: str = Query(..., description="Absolute or workspace-relative structure file path"),
+    session_id: str = Query(default="", description="Session ID to resolve custom workdir boundaries"),
+) -> JSONResponse:
     from io import StringIO
 
     try:
@@ -911,7 +954,10 @@ async def view_structure(path: str = Query(..., description="Absolute or workspa
     ws_root = get_workspace_root().resolve()
     p = Path(path)
     resolved = p.resolve() if p.is_absolute() else (ws_root / p).resolve()
-    if not resolved.is_relative_to(ws_root):
+    allowed = ws_root
+    if session_id:
+        allowed = _get_workdir_for_session(session_id).resolve()
+    if not resolved.is_relative_to(allowed) and not resolved.is_relative_to(ws_root):
         raise HTTPException(status_code=403, detail="Access denied: path is outside workspace")
     if not resolved.is_file():
         raise HTTPException(status_code=404, detail="File not found")
@@ -936,7 +982,7 @@ async def view_structure(path: str = Query(..., description="Absolute or workspa
 
 @app.get("/api/sessions/{session_id}/files")
 async def list_session_files(session_id: str) -> JSONResponse:
-    session_dir = get_session_workdir(session_id)
+    session_dir = _get_workdir_for_session(session_id)
     if not session_dir.exists():
         return JSONResponse({"files": []})
     files = [
@@ -949,7 +995,7 @@ async def list_session_files(session_id: str) -> JSONResponse:
 
 @app.post("/api/sessions/{session_id}/files")
 async def upload_session_file(session_id: str, file: UploadFile = File(...)) -> JSONResponse:
-    session_dir = get_session_workdir(session_id)
+    session_dir = _get_workdir_for_session(session_id)
     upload_dir = session_dir / "uploads"
     upload_dir.mkdir(parents=True, exist_ok=True)
 
@@ -979,7 +1025,7 @@ async def delete_session_file(
     session_id: str,
     path: str = Query(..., description="Absolute or session-relative file path"),
 ) -> JSONResponse:
-    session_dir = get_session_workdir(session_id).resolve()
+    session_dir = _get_workdir_for_session(session_id).resolve()
     p = Path(path)
     resolved = p.resolve() if p.is_absolute() else (session_dir / p).resolve()
 
@@ -1007,8 +1053,9 @@ async def cancel_session_execution(
     periodically during a step (force). The flag is cleared automatically
     when the orchestrator routes back to the planner.
     """
-    request_cancellation(session_id, reason)
-    AgentGraphLogger(session_id).mark_running_nodes_cancelled(
+    await asyncio.to_thread(request_cancellation, session_id, reason)
+    await asyncio.to_thread(
+        AgentGraphLogger(session_id).mark_running_nodes_cancelled,
         summary=f"Cancelled by user ({reason})"
     )
     return JSONResponse({
@@ -1052,9 +1099,10 @@ async def cancel_individual_step(
     The graph node for that step is updated immediately so the frontend reflects
     the cancellation before the executor polls.
     """
-    request_step_cancellation(session_id, step_number, reason)
-    found = AgentGraphLogger(session_id).cancel_step_node_by_number(
-        step_number, summary=f"Cancelled by user ({reason})"
+    await asyncio.to_thread(request_step_cancellation, session_id, step_number, reason)
+    found = await asyncio.to_thread(
+        AgentGraphLogger(session_id).cancel_step_node_by_number,
+        step_number, f"Cancelled by user ({reason})"
     )
     return JSONResponse({
         "status": "ok",
@@ -1068,7 +1116,7 @@ async def cancel_individual_step(
 @app.get("/api/skills")
 async def list_skills() -> JSONResponse:
     """Return all loaded skills with their planning_enabled status and parent skill (if any)."""
-    from agents.MatCreator.skill import _MODULE_SKILLS_ROOT, _discover_skill_dirs  # noqa: PLC0415
+    from matcreator.skill import _MODULE_SKILLS_ROOT, _discover_skill_dirs  # noqa: PLC0415
 
     parent_map: dict[str, str] = {}
     for root in [_MODULE_SKILLS_ROOT, workspace_skills_dir()]:
@@ -1227,6 +1275,7 @@ class SettingsBody(BaseModel):
     planning: dict | None = None
     user: dict | None = None
     skills: dict | None = None
+    workspace: dict | None = None
 
 
 @app.put("/api/settings")
@@ -1239,6 +1288,8 @@ async def update_settings(body: SettingsBody) -> JSONResponse:
         config.setdefault("user", {}).update(body.user)
     if body.skills is not None:
         config.setdefault("skills", {}).update(body.skills)
+    if body.workspace is not None:
+        config.setdefault("workspace", {}).update(body.workspace)
     save_config(config)
     try:
         refresh_skills()
@@ -1261,7 +1312,7 @@ async def get_env_config() -> JSONResponse:
     result: dict[str, str] = {}
 
     if mode == "local":
-        from agents.MatCreator.config import get_config_value
+        from matcreator.config import get_config_value
         for env_key in _ENV_FIELDS:
             yaml_key = ENV_TO_YAML.get(env_key)
             if yaml_key:
@@ -1293,7 +1344,7 @@ async def update_env_config(body: EnvConfigBody) -> JSONResponse:
     mode = os.environ.get("MATCREATOR_MODE", "local")
 
     if mode == "local":
-        from agents.MatCreator.config import set_config_value
+        from matcreator.config import set_config_value
         for key, value in body.values.items():
             if key not in _ENV_FIELDS:
                 continue
@@ -1388,4 +1439,5 @@ if _dist.exists():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    host = "0.0.0.0" if _MATCREATOR_MODE == "server" else "127.0.0.1"
+    uvicorn.run(app, host=host, port=8001)
