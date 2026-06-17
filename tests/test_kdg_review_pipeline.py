@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from know_do_graph import EntryType, VerificationStatus
 
-from agents.MatCreator.knowledge.review import run_review_pipeline
+from matcreator.knowledge.review import run_review_pipeline
 
 
 def _entry(entry_type, *, reviewed=0, status=VerificationStatus.unverified, memory=None):
@@ -23,7 +23,7 @@ class _ReviewSession:
         self.graph = graph
         self.on_status = on_status
 
-    def review_memory(self):
+    def review_memory(self, instructions=""):
         self.graph.calls.append("memory")
         if self.on_status:
             self.on_status(
@@ -43,7 +43,7 @@ class _ReviewSession:
             "summary": "Memory reviewed.",
         }
 
-    def review_nodes(self):
+    def review_nodes(self, instructions=""):
         self.graph.calls.append("graph")
         if self.on_status:
             self.on_status(
@@ -137,3 +137,38 @@ def test_pipeline_skips_graph_below_threshold() -> None:
     assert graph.calls == []
     assert result["graph_review"] is None
     assert "threshold 2" in result["summary"]
+
+
+class _NoOpReviewSession(_ReviewSession):
+    def review_memory(self, instructions=""):
+        self.graph.calls.append("memory")
+        return {
+            "status": "completed",
+            "progress": {"completed": 0, "total": 2, "percent": 0},
+            "results": [],
+            "errors": [],
+            "summary": "Model returned without using tools.",
+        }
+
+
+class _NoOpGraph(_Graph):
+    def chat(self, **kwargs):
+        return _NoOpReviewSession(self, kwargs.get("on_status"))
+
+
+def test_pipeline_surfaces_noop_memory_reviews_as_errors() -> None:
+    graph = _NoOpGraph([_entry(EntryType.memory, memory={"promoted": False})])
+
+    result = run_review_pipeline(
+        graph,
+        model="test-model",
+        api_key="test-key",
+        threshold=99,
+    )
+
+    assert result["status"] == "completed_with_errors"
+    assert result["memory_review"]["status"] == "completed_with_errors"
+    assert result["memory_review"]["errors"] == [
+        "memory review sampled 2 node(s) but recorded no actions."
+    ]
+    assert "without recording any actions" in result["memory_review"]["summary"]

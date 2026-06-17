@@ -69,12 +69,11 @@ def chat_with_knowledge_graph(
     api_key = (
         os.environ.get("LLM_API_KEY")
         or LLM_API_KEY
-        or os.environ.get("MINIMAX_API_KEY", "")
+        or ""
     )
     base_url = (
         os.environ.get("LLM_BASE_URL")
         or LLM_BASE_URL
-        or os.environ.get("MINIMAX_API_BASE")
         or None
     )
 
@@ -144,6 +143,37 @@ def _tag_results(phase: str, result: dict[str, Any]) -> list[dict[str, Any]]:
     return tagged
 
 
+def _finalize_phase_result(phase: str, result: dict[str, Any]) -> dict[str, Any]:
+    """Normalize reviewer output so silent no-op runs surface as errors."""
+    normalized = dict(result)
+    progress = dict(normalized.get("progress", {}))
+    total = int(progress.get("total", 0) or 0)
+    completed = int(progress.get("completed", 0) or 0)
+    errors = list(normalized.get("errors", []))
+
+    if total > 0 and completed == 0:
+        errors.append(
+            f"{phase} review sampled {total} node(s) but recorded no actions."
+        )
+    elif total > completed:
+        errors.append(
+            f"{phase} review handled {completed} of {total} sampled node(s)."
+        )
+
+    if errors:
+        normalized["errors"] = list(dict.fromkeys(errors))
+        if normalized.get("status") == "completed":
+            normalized["status"] = "completed_with_errors"
+        summary = (normalized.get("summary") or "").strip()
+        if total > 0 and completed == 0:
+            detail = (
+                f"Sampled {total} {phase} node(s) but the reviewer returned "
+                "without recording any actions."
+            )
+            normalized["summary"] = f"{summary} {detail}".strip()
+    return normalized
+
+
 def run_review_pipeline(
     graph: KnowDoGraph,
     *,
@@ -198,6 +228,7 @@ def _run_review_pipeline(
                 else None
             ),
         ).review_memory()
+        memory_review = _finalize_phase_result("memory", memory_review)
         phase_results["memory"] = memory_review
         graph.refresh()
 
@@ -214,6 +245,7 @@ def _run_review_pipeline(
                 else None
             ),
         ).review_nodes()
+        graph_review = _finalize_phase_result("graph", graph_review)
         phase_results["graph"] = graph_review
         graph.refresh()
 

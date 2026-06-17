@@ -39,6 +39,7 @@ import click
 
 _CONFIG_PATH = Path("~/.matcreator/config.yaml").expanduser()
 _DEFAULT_ADK_DIR = Path("~/.matcreator/.adk").expanduser()
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _make_agent_loader():
@@ -180,7 +181,7 @@ def _resolve_kdg_cli() -> str:
 def _matcreator_kdg_env() -> dict[str, str]:
     """Return an environment that pins KDG CLI calls to MatCreator's database."""
     _ensure_project_imports()
-    from agents.MatCreator.constants import KNOW_DO_GRAPH_DB
+    from matcreator.constants import KNOW_DO_GRAPH_DB
 
     env = os.environ.copy()
     env["KDG_DB_PATH"] = str(KNOW_DO_GRAPH_DB)

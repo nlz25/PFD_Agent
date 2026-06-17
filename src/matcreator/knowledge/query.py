@@ -43,12 +43,11 @@ def _configure_auto_review(graph: KnowDoGraph) -> None:
     api_key = (
         os.environ.get("LLM_API_KEY")
         or LLM_API_KEY
-        or os.environ.get("MINIMAX_API_KEY", "")
+        or ""
     )
     base_url = (
         os.environ.get("LLM_BASE_URL")
         or LLM_BASE_URL
-        or os.environ.get("MINIMAX_API_BASE")
         or None
     )
     batch_size = int(os.environ.get("MATCREATOR_REVIEW_BATCH_SIZE", "5"))

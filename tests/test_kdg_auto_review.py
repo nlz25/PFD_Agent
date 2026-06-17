@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from know_do_graph import EntryType, VerificationStatus
 
-from agents.MatCreator.knowledge import query
+from matcreator.knowledge import query
 
 
 class _RecordingGraph:

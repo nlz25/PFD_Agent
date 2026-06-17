@@ -2151,7 +2151,12 @@ function renderKnowledgeReviewStatus(review) {
       const memoryCount = results.filter((item) => item.phase === "memory").length;
       const graphCount = results.filter((item) => item.phase === "graph").length;
       const warning = errors.length ? `, ${errors.length} errors` : "";
-      knowledgeReviewText.textContent = `Review complete: ${memoryCount} memory, ${graphCount} graph actions${warning} · click to run again`;
+      const summary = review?.summary?.trim();
+      if (memoryCount === 0 && graphCount === 0 && summary) {
+        knowledgeReviewText.textContent = `${summary}${warning} · click to run again`;
+      } else {
+        knowledgeReviewText.textContent = `Review complete: ${memoryCount} memory, ${graphCount} graph actions${warning} · click to run again`;
+      }
     } else {
       knowledgeReviewText.textContent = "Review memory and graph · click to start";
     }

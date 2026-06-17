@@ -129,7 +129,7 @@ BOHRIUM_VASP_MACHINE=""
 ```
 
 `KDG_DB_PATH` is optional. If you leave it unset, MatCreator stores the
-knowledge graph at `agents/MatCreator/.adk/know_do_graph.db` by default.
+knowledge graph at `~/.matcreator/.adk/know_do_graph.db` by default.
 
 If you prefer different LLM models for sub-agents, you can override the default setting at the `.env` file within sub-agents directories. 
 
@@ -223,7 +223,7 @@ The agent can also create and update skills on its own. During a session, the th
 MatCreator uses `know-do-graph` for both durable knowledge and working memory:
 
 - **Know-Do Graph** stores curated capabilities, procedures, workflows, and
-  distilled heuristics in `agents/MatCreator/.adk/know_do_graph.db` by default.
+  distilled heuristics in `~/.matcreator/.adk/know_do_graph.db` by default.
 - **MemGraph** stores frequently updated agent observations as
   `EntryType.memory` nodes and normal graph edges in the same SQLite database.
 

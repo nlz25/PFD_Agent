@@ -9,6 +9,11 @@ from dotenv import load_dotenv
 
 _script_dir = Path(__file__).parent.resolve()
 _MATCREATOR_DIR = Path.home() / ".matcreator"
+_KDG_EMBED_ALIASES = {
+    "KDG_EMBED_MODEL": "EMBEDDING_MODEL",
+    "KDG_EMBED_API_KEY": "LLM_API_KEY",
+    "KDG_EMBED_BASE_URL": "LLM_BASE_URL",
+}
 
 # Priority: explicit env vars (highest) > config.yaml > .env (lowest)
 # Capture what was set before we load any file.
@@ -48,6 +53,22 @@ for _env_key, _yaml_val in _yaml_to_env.items():
     if _yaml_val and _env_key not in _pre_env:
         os.environ[_env_key] = _yaml_val
 
+
+def _normalize_kdg_embedding_env() -> None:
+    """Map MatCreator's generic embedding settings into KDG's embedder env."""
+    for kdg_key, source_key in _KDG_EMBED_ALIASES.items():
+        if not os.environ.get(kdg_key) and os.environ.get(source_key):
+            os.environ[kdg_key] = os.environ[source_key]
+
+    if (
+        not os.environ.get("KDG_EMBED_PROVIDER")
+        and os.environ.get("KDG_EMBED_MODEL")
+    ):
+        os.environ["KDG_EMBED_PROVIDER"] = "openai"
+
+
+_normalize_kdg_embedding_env()
+
 LLM_MODEL: str = os.environ.get("LLM_MODEL", "")
 GRAPH_AGENT_MODEL: str = os.environ.get("GRAPH_AGENT_MODEL", LLM_MODEL)
 LLM_API_KEY: str = os.environ.get("LLM_API_KEY", "")
@@ -61,17 +82,20 @@ EXECUTION_COMPACT_EVERY_EVENTS: int = int(os.environ.get("EXECUTION_COMPACT_EVER
 
 
 _AGENT_PATH = _script_dir
-_ADK_DIR = _MATCREATOR_DIR / ".adk"     # ADK internal storage (session.db, etc.)
+_ADK_DIR = _MATCREATOR_DIR / ".adk"     # ADK internal storage (session.db, KDG DB, etc.)
 _KNOWLEDGE_PATH= _script_dir / "knowledge"
 _SKILLS_DIR = _script_dir / "skills"
 _GUIDES_DIR = _script_dir/ "guides"
 _MEMORY_PATH = _KNOWLEDGE_PATH /"MEMORY.md"
-
-# Unified Know-Do Graph storage. Default to the agent's ADK directory so the
-# graph lives alongside other MatCreator runtime state unless explicitly
-# overridden with KDG_DB_PATH.
-os.environ.setdefault("KDG_DB_PATH", str(_ADK_DIR))
 _PROJECT_ROOT = _AGENT_PATH.parents[1]
+
+# Active Know-Do Graph storage lives under the user-global MatCreator ADK dir.
+DEFAULT_KDG_DB_DIR = _ADK_DIR
+DEFAULT_KDG_DB_PATH = DEFAULT_KDG_DB_DIR / "know_do_graph.db"
+
+# Unified Know-Do Graph storage. Prefer the ~/.matcreator default unless the
+# caller explicitly overrides it with KDG_DB_PATH.
+os.environ.setdefault("KDG_DB_PATH", str(DEFAULT_KDG_DB_PATH))
 _kdg_db_path = Path(os.environ["KDG_DB_PATH"]).expanduser()
 if not _kdg_db_path.is_absolute():
     _kdg_db_path = (_PROJECT_ROOT / _kdg_db_path).resolve()
@@ -80,10 +104,13 @@ if _kdg_db_path.suffix != ".db":
 KNOW_DO_GRAPH_DB = _kdg_db_path
 KNOW_DO_MEMORY_DIR = KNOW_DO_GRAPH_DB.parent / "memory"
 
-# Read-only migration sources (old agents/MatCreator/.adk/ location). New code must not write here.
-_LEGACY_ADK_DIR = _PROJECT_ROOT / "agents" / "MatCreator" / ".adk"
-LEGACY_UNIFIED_GRAPH_DB = _LEGACY_ADK_DIR / "know_do_graph.db"
-LEGACY_UNIFIED_MEMORY_DIR = _LEGACY_ADK_DIR / "memory"
+# Read-only migration sources from previous storage layouts. New code must not
+# write here unless the caller explicitly points KDG_DB_PATH at them.
+_LEGACY_REPO_ADK_DIR = _PROJECT_ROOT / "agents" / "MatCreator" / ".adk"
+_LEGACY_ADK_DIR = _ADK_DIR
+LEGACY_UNIFIED_GRAPH_DB = _LEGACY_REPO_ADK_DIR / "know_do_graph.db"
+LEGACY_UNIFIED_MEMORY_DIR = _LEGACY_REPO_ADK_DIR / "memory"
+# Older split-graph releases stored separate skill/memory DBs under ~/.matcreator/.adk.
 LEGACY_SKILL_GRAPH_DB = _LEGACY_ADK_DIR / "skill_graph.db"
 LEGACY_MEMORY_GRAPH_DB = _LEGACY_ADK_DIR / "memory_graph.db"
 

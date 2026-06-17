@@ -98,6 +98,49 @@ _knowledge_review_state = {
     "errors": [],
     "summary": "",
 }
+_LEGACY_ENV_ALIASES = {
+    "LLM_API_KEY": "MINIMAX_API_KEY",
+    "LLM_BASE_URL": "MINIMAX_API_BASE",
+}
+
+
+def _config_value_for_env_key(env_key: str) -> str:
+    yaml_key = ENV_TO_YAML.get(env_key)
+    if not yaml_key:
+        return ""
+    parts = yaml_key.split(".", 1)
+    config = load_config()
+    if len(parts) == 1:
+        value = config.get(parts[0], "")
+    else:
+        value = config.get(parts[0], {}).get(parts[1], "")
+    return "" if value is None else str(value)
+
+
+def _dotenv_value(env_key: str) -> str:
+    if not ENV_PATH.exists():
+        return ""
+    value = dotenv_values(ENV_PATH).get(env_key, "")
+    return "" if value is None else str(value)
+
+
+def _runtime_env_value(env_key: str) -> str:
+    """Resolve a setting from the active runtime plus persisted UI settings."""
+    mode = os.environ.get("MATCREATOR_MODE", "local")
+    if mode == "local":
+        value = (
+            _config_value_for_env_key(env_key)
+            or os.environ.get(env_key, "")
+            or _dotenv_value(env_key)
+        )
+    else:
+        value = _dotenv_value(env_key) or os.environ.get(env_key, "")
+    if value:
+        return value
+    legacy_key = _LEGACY_ENV_ALIASES.get(env_key)
+    if not legacy_key:
+        return ""
+    return _dotenv_value(legacy_key) or os.environ.get(legacy_key, "")
 
 # ---------------------------------------------------------------------------
 # Server-mode worker management
@@ -154,7 +197,7 @@ def _worker_env_vars() -> dict[str, str]:
         "BOHRIUM_DEEPMD_IMAGE", "BOHRIUM_DEEPMD_MACHINE", "DEEPMD_MODEL_PATH",
         "KDG_EMBED_MODEL", "HF_HUB_OFFLINE",
     ]
-    return {k: v for k in keys if (v := os.environ.get(k))}
+    return {k: v for k in keys if (v := _runtime_env_value(k))}
 
 
 def ensure_worker_running(user_id: str) -> int:
@@ -638,12 +681,14 @@ def _set_knowledge_review_state(**changes) -> None:
 
 
 def _review_model_config() -> tuple[str, str, str | None]:
-    model = os.environ.get("REVIEW_AGENT_MODEL") or os.environ.get(
-        "GRAPH_AGENT_MODEL",
-        GRAPH_AGENT_MODEL,
+    model = (
+        _runtime_env_value("REVIEW_AGENT_MODEL")
+        or _runtime_env_value("GRAPH_AGENT_MODEL")
+        or _runtime_env_value("LLM_MODEL")
+        or GRAPH_AGENT_MODEL
     )
-    api_key = os.environ.get("LLM_API_KEY") or os.environ.get("MINIMAX_API_KEY", "")
-    base_url = os.environ.get("LLM_BASE_URL") or os.environ.get("MINIMAX_API_BASE") or None
+    api_key = _runtime_env_value("LLM_API_KEY")
+    base_url = _runtime_env_value("LLM_BASE_URL") or None
     if "/" in model:
         model = model.split("/", 1)[1]
     return model, api_key, base_url
@@ -654,11 +699,13 @@ async def _run_knowledge_review(session_id: str) -> None:
         model, api_key, base_url = _review_model_config()
         if not api_key:
             raise RuntimeError(
-                "No review API key configured. Set LLM_API_KEY in Settings or "
-                "MINIMAX_API_KEY in agents/MatCreator/.env."
+                "No review API key configured. Set LLM_API_KEY in Settings "
+                "(stored in ~/.matcreator/config.yaml in local mode)."
             )
         if not model:
-            raise RuntimeError("No REVIEW_AGENT_MODEL or GRAPH_AGENT_MODEL configured.")
+            raise RuntimeError(
+                "No REVIEW_AGENT_MODEL, GRAPH_AGENT_MODEL, or LLM_MODEL configured."
+            )
 
         def run_review() -> dict:
             graph = _get_kg()
@@ -1355,6 +1402,10 @@ async def update_env_config(body: EnvConfigBody) -> JSONResponse:
             if sensitive and value == "***":
                 continue
             set_config_value(yaml_key, value)
+            if value:
+                os.environ[key] = value
+            else:
+                os.environ.pop(key, None)
     else:
         ENV_PATH.parent.mkdir(parents=True, exist_ok=True)
         if not ENV_PATH.exists():
@@ -1365,6 +1416,10 @@ async def update_env_config(body: EnvConfigBody) -> JSONResponse:
             if key in _SENSITIVE_FIELDS and value == "***":
                 continue
             dotenv_set_key(str(ENV_PATH), key, value)
+            if value:
+                os.environ[key] = value
+            else:
+                os.environ.pop(key, None)
 
     return JSONResponse({"status": "ok"})
 
