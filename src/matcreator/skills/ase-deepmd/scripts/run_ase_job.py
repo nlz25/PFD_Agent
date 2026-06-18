@@ -168,13 +168,16 @@ def _make_md_dynamics(atoms, stage):
         if pressure is None:
             raise ValueError(f"'pressure' is required for {mode} mode.")
         mask = np.eye(3, dtype=bool) if mode == "NPT-aniso" else None
+        bulk_modulus = 100.0 * units.GPa            # Typical metallic bulk moduli are of the order of 100 GPa or 0.6 eV/A^3        
+        ptime = tau_p_ps * 1000.0 * units.fs        # characteristic barostat timescale
+        pfactor = ptime**2 * bulk_modulus           # pfactor = ptime^2 * B
         return NPT(
             atoms,
             timestep=timestep_fs * units.fs,
             temperature_K=temperature_K,
             externalstress=pressure * units.GPa,
             ttime=tau_t_ps * 1000.0 * units.fs,
-            pfactor=tau_p_ps * 1000.0 * units.fs,
+            pfactor=pfactor,
             mask=mask,
         ), timestep_fs
 
