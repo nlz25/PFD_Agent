@@ -43,7 +43,7 @@ from urllib.parse import unquote
 import httpx
 import yaml
 
-from dotenv import dotenv_values
+from dotenv import dotenv_values, load_dotenv
 from dotenv import set_key as dotenv_set_key
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -112,6 +112,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+if ENV_PATH.exists():
+    load_dotenv(ENV_PATH, override=False)
+SUMMARIES_PATH = ROOT / "agents" / "MatCreator" / ".adk" / "session_summaries.json"
 _SENSITIVE_FIELDS = frozenset({"LLM_API_KEY", "BOHRIUM_PASSWORD"})
 _ENV_FIELDS = [
     "LLM_MODEL", "LLM_API_KEY", "LLM_BASE_URL", "EMBEDDING_MODEL",
@@ -632,14 +635,21 @@ def _is_admin(user_id: str) -> bool:
     return user is not None and user["display_name"] in admin_names
 
 
-def _session_row_to_summary(row: sqlite3.Row) -> dict:
-    return {
+def _session_row_to_summary(row: sqlite3.Row, summaries: dict[str, dict] | None = None) -> dict:
+    result = {
         "id": row["id"],
         "appName": row["app_name"],
         "userId": row["user_id"],
         "createTime": row["create_time"],
         "lastUpdateTime": row["update_time"],
     }
+    if summaries is not None:
+        entry = summaries.get(row["id"], "")
+        if isinstance(entry, dict):
+            result["summary"] = entry.get("summary", "")
+        else:
+            result["summary"] = entry
+    return result
 
 
 def _query_session_summaries(user_id: str | None = None) -> list[dict]:
@@ -667,7 +677,185 @@ def _query_session_summaries(user_id: str | None = None) -> list[dict]:
     except sqlite3.Error as exc:
         raise HTTPException(status_code=500, detail=f"Failed to read sessions: {exc}")
 
-    return [_session_row_to_summary(row) for row in rows]
+    summaries = _load_summaries()
+    return [_session_row_to_summary(row, summaries) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Session summaries (experimental)
+# ---------------------------------------------------------------------------
+
+import hashlib
+import tempfile
+
+
+def _load_summaries() -> dict[str, dict]:
+    """Load session summaries from the JSON file.
+
+    Returns dict of {session_id: {"summary": str, "content_hash": str}}.
+    For backward compatibility, plain string values are also accepted.
+    """
+    if not SUMMARIES_PATH.exists():
+        return {}
+    try:
+        data = json.loads(SUMMARIES_PATH.read_text(encoding="utf-8"))
+        # Normalize: support both old format (str) and new format (dict)
+        result = {}
+        for k, v in data.items():
+            if isinstance(v, str):
+                result[k] = {"summary": v, "content_hash": ""}
+            else:
+                result[k] = v
+        return result
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_summaries(data: dict[str, dict]) -> None:
+    """Persist session summaries atomically via temp file + rename."""
+    SUMMARIES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(
+        dir=str(SUMMARIES_PATH.parent), suffix=".tmp", prefix="summaries_"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, str(SUMMARIES_PATH))
+    except Exception:
+        # Clean up temp file on failure
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def _get_session_summary(session_id: str) -> str:
+    """Get summary text for a single session, or empty string."""
+    entry = _load_summaries().get(session_id)
+    if isinstance(entry, dict):
+        return entry.get("summary", "")
+    return ""
+
+
+def _fetch_first_user_message(session_id: str) -> str:
+    """Read the first user message text from the session DB."""
+    if not SESSION_DB_PATH.exists():
+        return ""
+    try:
+        with sqlite3.connect(SESSION_DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT event_data FROM events
+                WHERE app_name = ? AND session_id = ?
+                ORDER BY timestamp ASC
+                """,
+                (APP_NAME, session_id),
+            ).fetchall()
+    except sqlite3.Error:
+        return ""
+
+    for row in rows:
+        event = _load_json_field(row["event_data"], {})
+        if event.get("author") != "user":
+            continue
+        parts = event.get("content", {}).get("parts", [])
+        text = " ".join(p.get("text", "") for p in parts if isinstance(p, dict) and p.get("text"))
+        if text.strip():
+            return text.strip()
+    return ""
+
+
+_SUMMARIZE_PROMPT = (
+    "请用一句简洁的中文（不超过30个字）总结以下对话的核心内容。"
+    "只输出总结本身，不要任何前缀、解释或标点以外的符号。\n\n"
+    "对话内容：\n{text}"
+)
+
+
+def _llm_config() -> tuple[str, str | None, str | None]:
+    """Resolve LLM config from env vars, with .env fallback.
+
+    Returns None for api_key/base_url when not explicitly set, so litellm
+    can use its built-in provider detection (e.g. MINIMAX_API_KEY for minimax/).
+    """
+    env = dotenv_values(ENV_PATH) if ENV_PATH.exists() else {}
+    model = os.environ.get("LLM_MODEL") or env.get("LLM_MODEL", "")
+    api_key = os.environ.get("LLM_API_KEY") or env.get("LLM_API_KEY") or None
+    base_url = os.environ.get("LLM_BASE_URL") or env.get("LLM_BASE_URL") or None
+    return model, api_key, base_url
+
+
+@app.post("/api/sessions/{session_id}/summarize")
+async def summarize_session(session_id: str) -> JSONResponse:
+    """Generate a one-sentence summary from the session's first user message."""
+    # Fetch canonical first message from DB
+    first_msg = _fetch_first_user_message(session_id)
+    if not first_msg:
+        return JSONResponse({"summary": ""})
+
+    content_hash = hashlib.md5(first_msg.encode()).hexdigest()[:12]
+
+    # Return cached summary if content hash matches
+    summaries = _load_summaries()
+    cached = summaries.get(session_id)
+    if cached and isinstance(cached, dict) and cached.get("content_hash") == content_hash:
+        return JSONResponse({"summary": cached["summary"]})
+
+    # Call LLM to generate summary
+    summary = ""
+    try:
+        from litellm import acompletion
+
+        model, api_key, base_url = _llm_config()
+        prompt = _SUMMARIZE_PROMPT.format(text=first_msg[:2000])
+
+        response = await acompletion(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            api_key=api_key or None,
+            base_url=base_url or None,
+            temperature=0.3,
+            max_tokens=100,
+        )
+        raw = response.choices[0].message.content or ""
+        summary = raw.strip().strip('"\'')
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Session summary LLM call failed: %s", exc)
+        # Fallback: use truncated first message
+        summary = first_msg[:40] + ("…" if len(first_msg) > 40 else "")
+
+    # Persist with content hash (skip caching empty results so it retries next time)
+    if summary:
+        summaries[session_id] = {"summary": summary, "content_hash": content_hash}
+        _save_summaries(summaries)
+
+    return JSONResponse({"summary": summary})
+
+
+class UpdateSummaryBody(BaseModel):
+    summary: str
+
+
+@app.put("/api/sessions/{session_id}/summary")
+async def update_session_summary(session_id: str, body: UpdateSummaryBody) -> JSONResponse:
+    """Manually set, override, or clear the summary for a session."""
+    text = body.summary.strip()
+
+    summaries = _load_summaries()
+    if not text:
+        # Clear summary
+        summaries.pop(session_id, None)
+        _save_summaries(summaries)
+        return JSONResponse({"summary": ""})
+
+    existing = summaries.get(session_id, {})
+    content_hash = existing.get("content_hash", "") if isinstance(existing, dict) else ""
+    summaries[session_id] = {"summary": text, "content_hash": content_hash}
+    _save_summaries(summaries)
+    return JSONResponse({"summary": text})
 
 
 def _query_session_summaries_server(user_id: str | None = None) -> list[dict]:
@@ -1450,6 +1638,7 @@ async def get_user_session(user_id: str, session_id: str) -> JSONResponse:
         raise HTTPException(status_code=500, detail=f"Failed to read session: {exc}")
 
     summary = _session_row_to_summary(session)
+    summary["summary"] = _get_session_summary(session_id)
     summary["state"] = _load_json_field(session["state"], {})
     events = [
         _load_json_field(row["event_data"], {})

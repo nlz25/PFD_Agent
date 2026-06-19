@@ -1626,6 +1626,9 @@ details.panel-block:not([open]) > summary.block-header::after { transform: rotat
   flex: 1;
   min-width: 0;
   overflow: hidden;
+}
+.session-item-id {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1721,6 +1724,65 @@ details.panel-block:not([open]) > summary.block-header::after { transform: rotat
   font-weight: 600;
 }
 .confirm-ok:hover { background: #ef4444; }
+
+.session-item-summary {
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.75;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+  font-family: inherit;
+}
+
+/* ── Session summary in card-header ───────────────────────── */
+.session-summary-header {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  max-width: 40%;
+  margin: auto 0;
+  padding: 0 12px;
+}
+.session-summary-text {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-summary-placeholder {
+  opacity: 0.4;
+  font-style: italic;
+}
+.session-summary-edit {
+  flex-shrink: 0;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.15s, background 0.15s;
+}
+.session-summary-edit:hover {
+  opacity: 1;
+  background: rgba(125, 211, 252, 0.15);
+}
+.session-summary-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+  background: rgba(125, 211, 252, 0.08);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 2px 8px;
+  outline: none;
+  text-align: center;
+}
 
 .structure-view-btn {
   margin-top: 6px;
