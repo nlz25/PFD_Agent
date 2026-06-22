@@ -104,7 +104,7 @@
               </div>
               <div class="detail-section" id="detail-conversation-row">
                 <details>
-                  <summary class="detail-key">Conversation Transcript</summary>
+                  <summary class="detail-key">Conversations Transcript</summary>
                   <div id="detail-conversation"></div>
                 </details>
               </div>
@@ -149,7 +149,7 @@
         <section class="card chat-card">
           <div class="card-header">
             <div>
-              <div class="eyebrow">Conversation</div>
+              <div class="eyebrow">Conversations</div>
               <h2>Orchestration Chat</h2>
             </div>
             <div style="display:flex;align-items:center;gap:8px;">
@@ -194,6 +194,11 @@
             <div class="plan-graph-popup-header">
               <span class="plan-graph-popup-title">Execution Plan</span>
               <span class="graph-status status-idle" id="plan-graph-status">idle</span>
+              <div class="plan-graph-zoom-controls">
+                <button class="ghost plan-graph-zoom-btn" id="plan-graph-zoom-in" title="Zoom in">＋</button>
+                <button class="ghost plan-graph-zoom-btn" id="plan-graph-zoom-out" title="Zoom out">－</button>
+                <button class="ghost plan-graph-zoom-btn" id="plan-graph-fit" title="Reset view">⊡</button>
+              </div>
               <button class="ghost plan-graph-close-btn" id="plan-graph-close" title="Close">✕</button>
             </div>
             <div id="plan-graph-canvas" class="plan-graph-canvas"></div>

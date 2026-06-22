@@ -713,15 +713,36 @@ class StepExecutionFeed {
     if (!outer || !chatArea.contains(outer)) {
       outer = this._createCard(node);
       this._cards.set(node.id, outer);
-      chatArea.appendChild(outer);
+      this._insertSorted(outer, node);
     }
     this._renderCard(outer, node);
+  }
+
+  _insertSorted(outer, node) {
+    const newTime = node.start_time ? new Date(node.start_time).getTime() : Infinity;
+    outer.dataset.stepStartTime = String(newTime);
+    const stepCards = [...this._cards.entries()]
+      .filter(([id, el]) => id !== node.id && chatArea.contains(el))
+      .sort(([, a], [, b]) => {
+        const ta = a.dataset.stepStartTime ? Number(a.dataset.stepStartTime) : Infinity;
+        const tb = b.dataset.stepStartTime ? Number(b.dataset.stepStartTime) : Infinity;
+        return ta - tb;
+      });
+    for (const [, card] of stepCards) {
+      const cardTime = card.dataset.stepStartTime ? Number(card.dataset.stepStartTime) : Infinity;
+      if (newTime < cardTime) {
+        chatArea.insertBefore(outer, card);
+        return;
+      }
+    }
+    chatArea.appendChild(outer);
   }
 
   _createCard(node) {
     const outer = document.createElement("div");
     outer.className = "message agent-message step-feed-message";
     outer.dataset.stepNodeId = node.id;
+    outer.dataset.stepStartTime = node.start_time ? String(new Date(node.start_time).getTime()) : "";
     outer.appendChild(createAgentAvatarEl());
 
     const bubble = document.createElement("div");
@@ -794,14 +815,17 @@ class StepExecutionFeed {
     if (conversation.length) {
       const section = document.createElement("div");
       section.className = "step-feed-section";
-      const label = document.createElement("div");
-      label.className = "step-feed-section-title";
-      label.textContent = `Conversation (${conversation.length})`;
-      section.appendChild(label);
+      const sectionDetails = document.createElement("details");
+      sectionDetails.className = "step-feed-section-details";
+      const sectionSummary = document.createElement("summary");
+      sectionSummary.className = "step-feed-section-title";
+      sectionSummary.textContent = `Conversations (${conversation.length})`;
+      sectionDetails.appendChild(sectionSummary);
       conversation.forEach((evt, idx) => {
         const key = `conversation:${idx}:${evt.timestamp || ""}:${evt.type || ""}:${evt.author || ""}`;
-        section.appendChild(this._wireNested(node.id, key, renderStepConversationEvent(evt)));
+        sectionDetails.appendChild(this._wireNested(node.id, key, renderStepConversationEvent(evt)));
       });
+      section.appendChild(this._wireNested(node.id, "section:conversation", sectionDetails));
       body.appendChild(section);
     }
 
@@ -809,14 +833,17 @@ class StepExecutionFeed {
     if (toolCalls.length) {
       const section = document.createElement("div");
       section.className = "step-feed-section";
-      const label = document.createElement("div");
-      label.className = "step-feed-section-title";
-      label.textContent = `Tool calls (${toolCalls.length})`;
-      section.appendChild(label);
+      const sectionDetails = document.createElement("details");
+      sectionDetails.className = "step-feed-section-details";
+      const sectionSummary = document.createElement("summary");
+      sectionSummary.className = "step-feed-section-title";
+      sectionSummary.textContent = `Tool calls (${toolCalls.length})`;
+      sectionDetails.appendChild(sectionSummary);
       toolCalls.forEach((tc, idx) => {
         const key = `tool:${idx}:${tc.name || ""}:${tc.start_time || ""}`;
-        section.appendChild(this._wireNested(node.id, key, renderStepToolCall(tc)));
+        sectionDetails.appendChild(this._wireNested(node.id, key, renderStepToolCall(tc)));
       });
+      section.appendChild(this._wireNested(node.id, "section:toolcalls", sectionDetails));
       body.appendChild(section);
     }
 
@@ -857,7 +884,7 @@ class StepExecutionFeed {
 const PLAN_NODE_STATUS_COLORS = {
   pending:   { bg: "#374151", border: "#6B7280", font: "#9CA3AF" },
   running:   { bg: "#FBBF24", border: "#F59E0B", font: "#1a1a1a" },
-  success:   { bg: "#10B981", border: "#059669", font: "#fff" },
+  success:   { bg: "#10B981", border: "#059669", font: "#043F2E" },
   failed:    { bg: "#EF4444", border: "#DC2626", font: "#fff" },
   blocked:   { bg: "#1F2937", border: "#374151", font: "#4B5563" },
 };
@@ -877,10 +904,10 @@ class ExecutionPlanView {
     const options = {
       layout: {
         hierarchical: {
-          direction: "UD",
+          direction: "LR",
           sortMethod: "directed",
           nodeSpacing: 120,
-          levelSeparation: 90,
+          levelSeparation: 170,
           blockShifting: true,
           edgeMinimization: true,
         },
@@ -890,13 +917,13 @@ class ExecutionPlanView {
         arrows: { to: { enabled: true, scaleFactor: 0.6 } },
         color: { color: "#4B5563", highlight: "#9CA3AF" },
         width: 1.5,
-        smooth: { type: "cubicBezier", forceDirection: "vertical" },
+        smooth: { type: "cubicBezier", forceDirection: "horizontal" },
       },
       nodes: {
         shape: "box",
         borderWidth: 2,
         borderWidthSelected: 3,
-        font: { size: 14, face: "Manrope, sans-serif" },
+        font: { size: 14, face: "Manrope, sans-serif", bold: true },
         margin: { top: 8, bottom: 8, left: 12, right: 12 },
       },
       interaction: {
@@ -951,7 +978,7 @@ class ExecutionPlanView {
         border: colors.border,
         highlight: { background: colors.border, border: colors.border },
       },
-      font: { color: colors.font, size: 14 },
+      font: { color: colors.font, size: 14, bold: true, face: "Manrope, sans-serif" },
       shapeProperties: isRunning ? { borderDashes: [4, 3] } : {},
       borderWidth: isRunning ? 2.5 : 2,
     };
@@ -981,19 +1008,42 @@ class ExecutionPlanView {
         to,
         physics: false,
         hidden: false,
-        smooth: { type: "cubicBezier", forceDirection: "vertical" },
+        smooth: { type: "cubicBezier", forceDirection: "horizontal" },
       };
     });
 
     // Rebuild via setData so hierarchical layout sees nodes + edges together.
-    // Re-fit only when structure changes to avoid jarring jumps on status updates.
+    // Only fit on very first load; after that preserve the user's camera position.
     const structureKey = JSON.stringify({ ids: [...nodeIds].sort(), edges: rawEdges });
     const structureChanged = structureKey !== this._structureKey;
+
+    // Save camera before setData resets the layout
+    let savedCamera = null;
+    if (this._didInitialFit) {
+      try {
+        savedCamera = {
+          position: this._network.getViewPosition(),
+          scale: this._network.getScale(),
+        };
+      } catch (_) {}
+    }
+
     this._network.setData({ nodes: new DataSet(visNodes), edges: new DataSet(visEdges) });
-    if (structureChanged || !this._didInitialFit) {
+
+    if (!this._didInitialFit) {
       this._structureKey = structureKey;
       this._network.fit({ animation: { duration: 300, easingFunction: "easeInOutQuad" } });
       this._didInitialFit = true;
+    } else {
+      if (structureChanged) this._structureKey = structureKey;
+      // Restore the user's camera position
+      if (savedCamera) {
+        this._network.moveTo({
+          position: savedCamera.position,
+          scale: savedCamera.scale,
+          animation: false,
+        });
+      }
     }
   }
 
@@ -1032,7 +1082,26 @@ class ExecutionPlanView {
 
   notifyLayoutChanged() {
     this._network?.redraw();
-    this._network?.fit({ animation: false });
+    if (!this._didInitialFit) {
+      this._network?.fit({ animation: false });
+    }
+  }
+
+  zoomIn() {
+    if (!this._network) return;
+    const scale = this._network.getScale() * 1.3;
+    this._network.moveTo({ scale, animation: { duration: 200, easingFunction: "easeInOutQuad" } });
+  }
+
+  zoomOut() {
+    if (!this._network) return;
+    const scale = this._network.getScale() / 1.3;
+    this._network.moveTo({ scale, animation: { duration: 200, easingFunction: "easeInOutQuad" } });
+  }
+
+  fitToView() {
+    if (!this._network) return;
+    this._network.fit({ animation: { duration: 300, easingFunction: "easeInOutQuad" } });
   }
 
   _setStatus(s) {
@@ -1071,6 +1140,9 @@ planGraphToggleBtn?.addEventListener("click", () => {
 });
 
 planGraphCloseBtn?.addEventListener("click", hidePlanGraph);
+document.getElementById("plan-graph-zoom-in")?.addEventListener("click", () => planGraph.zoomIn());
+document.getElementById("plan-graph-zoom-out")?.addEventListener("click", () => planGraph.zoomOut());
+document.getElementById("plan-graph-fit")?.addEventListener("click", () => planGraph.fitToView());
 // ---------------------------------------------------------------------------
 
 function isMobileLayout() {

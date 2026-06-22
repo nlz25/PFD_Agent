@@ -481,6 +481,32 @@ body {
   text-transform: uppercase;
 }
 
+.step-feed-section-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.step-feed-section-details > summary.step-feed-section-title {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.step-feed-section-details > summary.step-feed-section-title::-webkit-details-marker {
+  display: none;
+}
+
+.step-feed-section-details > summary.step-feed-section-title::before {
+  content: "▸";
+  margin-right: 4px;
+  transition: transform 0.15s ease;
+}
+
+.step-feed-section-details[open] > summary.step-feed-section-title::before {
+  transform: rotate(90deg);
+}
+
 .step-feed-empty {
   color: var(--muted);
   font-size: 12px;
@@ -1093,6 +1119,23 @@ details summary:hover { color: var(--text); }
   font-size: 11px;
   padding: 2px 6px;
   color: var(--muted);
+}
+.plan-graph-zoom-controls {
+  display: flex;
+  gap: 2px;
+  margin-left: 4px;
+}
+.plan-graph-zoom-btn {
+  font-size: 12px;
+  padding: 2px 6px;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 4px;
+  line-height: 1;
+}
+.plan-graph-zoom-btn:hover {
+  color: var(--text);
+  background: rgba(255,255,255,0.06);
 }
 .plan-graph-canvas {
   flex: 1;
