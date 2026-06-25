@@ -257,6 +257,33 @@ Only after the session has exited **and** the expected output files exist is the
 - **`--dry-run`**: Parses the configuration and validates the schema without submitting. Useful for a final safety check.
 - **`--allow-ref`**: Required when `submission.json` uses `{"$ref": "other.json"}` for reusable config snippets. Pass it to **all** related commands (`dargs check` and `dpdisp submit`).
 
+## MANDATORY: backward_files Validation Before Submission
+
+**Before submitting any job, you MUST verify that `backward_files` covers ALL outputs produced by the `command`.**
+
+This is the #1 cause of silent data loss — if a file is produced on the remote but not listed in `backward_files`, dpdispatcher will NOT download it. The job appears to "succeed" but the output is permanently lost.
+
+### How to validate
+
+1. **Parse the `command` field** for output file patterns:
+   - Redirect targets: `> train_log` → `train_log`
+   - `-o frozen` → `frozen.pt2` (DeepMD freeze output)
+   - `-d result-test` → `result-test*` (directory/pattern)
+   - `-l log-test` → `log-test`
+   - Any explicit output file paths in the command
+
+2. **Cross-reference with `backward_files`** — every output from step 1 must appear in the list.
+
+3. **Common omissions to watch for:**
+   | Command pattern | Missing from backward_files | Impact |
+   |---|---|---|
+   | `dp --pt freeze -o frozen` | `frozen.pt2` | Trained model lost |
+   | `dp --pt test -d result-test -l log-test` | `result-test*`, `log-test` | Test results lost |
+   | `> some_log` | `some_log` | Log file lost |
+   | `mpirun vasp` | `OUTCAR`, `CONTCAR`, `vasprun.xml` | VASP outputs lost |
+
+4. **If backward_files is incomplete**, fix it BEFORE submission. Do not proceed with `dpdisp submit` until all outputs are covered.
+
 ## Completion criteria
 
 A job is **fully completed** only when **both** of the following are true:

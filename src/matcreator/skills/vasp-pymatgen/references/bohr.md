@@ -16,8 +16,12 @@ All other Bohrium parameters (`BOHRIUM_PROJECT_ID`, machine type) are general an
 ## VASP run command
 
 ```bash
-source /opt/intel/oneapi/setvars.sh && mpirun -np <N_CORES> vasp_std > log 2> err
+export FI_PROVIDER=tcp && source /opt/intel/oneapi/setvars.sh && mpirun -np <N_CORES> vasp_std > log 2> err
 ```
+
+> **⚠️ CRITICAL:** `export FI_PROVIDER=tcp` is **MANDATORY** for VASP jobs on Bohrium.
+> Without this setting, MPI communication will fail with fabric errors, wasting
+> significant compute time and credits. Always include this before `source setvars.sh`.
 
 Always match the `<N_CORES>` count to the machine's core count.
 
@@ -44,8 +48,8 @@ bohr job submit \
   --job_name "vasp-relax-Al" \
   --machine_type "c32_m64_cpu" \
   --image_address "$BOHRIUM_VASP_IMAGE" \
-  --input_directory "./vasp-relax-Al-example" \ 
-  --command "source /opt/intel/oneapi/setvars.sh && mpirun -np 32 vasp_std" 
+  --input_directory "./vasp-relax-Al-example" \
+  --command "export FI_PROVIDER=tcp && source /opt/intel/oneapi/setvars.sh && mpirun -np 32 vasp_std"
 ```
 
 Monitor (Download log files for Job IDs )

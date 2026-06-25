@@ -7,8 +7,12 @@ metadata:
   dependent_skills:
     - dpdisp
     - vasp
+    - vasp-pymatgen
     - abacus
     - atomic-structure
+    - ase-deepmd
+    - quests
+    - lammps
   tags:
     - deepmd
     - dpa4
@@ -17,19 +21,6 @@ metadata:
     - machine-learning-potential
     - dft-labeling
 ---
-
-> ⚠️ **MANDATORY — READ BEFORE ACTING**
->
-> 1. **This skill is the SINGLE SOURCE OF TRUTH** for DPA4 workflows. It **overrides**
->    any existing DAG, execution plan, or pre-existing directory configuration.
-> 2. **Always use `dpa4_prepare.py`** to generate the workdir. **Never reuse** old
->    `ft-*/`, `train_*/`, or any pre-existing work directories — their input.json,
->    job.json, and data layouts may be from a different workflow and are NOT valid.
-> 3. **Read this skill IN FULL** before executing. Do not act on headline lines alone.
->    Key decision points (dataset check, system complexity, frame budget) are in the
->    workflow sections below.
-> 4. If a DAG or orchestrator plan contradicts this skill, **follow this skill** and
->    discard the conflicting plan.
 
 # DPA4 Skill
 
@@ -59,7 +50,7 @@ When a user asks to generate or finetune a DPA4 force field, follow this decisio
 
 ### Step 0 — Ask the user: Do you have a DFT-labelled dataset?
 
-A "DFT-labelled dataset" means structures whose energy, forces, and (optionally) virial
+A "DFT-labelled dataset" means structures whose energy, forces, and virial
 were computed by DFT (VASP, ABACUS, etc.), **not** by a pretrained ML model.
 
 - **Bench mode** (`agent_mode == "bench"`): skip this question — assume NO dataset and
@@ -67,8 +58,16 @@ were computed by DFT (VASP, ABACUS, etc.), **not** by a pretrained ML model.
 
 **If the user HAS a DFT-labelled dataset:**
 
-1. Use at most **100 frames** for finetuning. If the dataset has more than 100 frames,
-   the excess automatically becomes the test set.
+1. **Entropy-based structure selection (MANDATORY):**
+   Use entropy-based filtering to select **100 diverse structures** for training:
+   ```
+   run_skill_script(
+       skill_name="quests",
+       script_name="active_learning.py",
+       args="filter-by-entropy user_dataset.extxyz --max-sel 100 --chunk-size 10"
+   )
+   ```
+   Remaining structures become the test set for evaluation.
 
 2. Finetune DPA4, then run `dp test` on the test set with **both** the pretrained model
    and the finetuned model. Compare and report the improvement (energy/force MAE reduction).
@@ -94,9 +93,37 @@ Follow Phases A–D below. EOS benchmark is used for evaluation (no test set ava
 
 3. **Generate candidate structures** for MD exploration:
    - Use the pretrained model **only for MD** to explore configuration space.
-   - Use the `atomic-structure` skill to build, supercell, and perturb structures.
+   - Use the `atomic-structure` skill to build and supercell structures (NOT for MD).
+   - **MD sampling tool priority:** `ase-deepmd` > `lammps`. Try `ase-deepmd` first;
+     if it fails repeatedly, switch to `lammps`. Never use `atomic-structure` for MD.
 
-4. **Atom count rules for DFT calculations:**
+4. **MD sampling parameters (NPT ensemble):**
+   | Parameter | Default value | Description |
+   |---|---|---|
+   | Ensemble | **NPT** | NPT ensemble is mandatory for MD sampling |
+   | Temperature | **500 K** | Target temperature |
+   | Pressure | **1 bar** | Target pressure |
+   | Duration | **5 ps** | Total simulation time |
+   | Output frames | **100** | Number of structures to retain |
+
+   > **⚠️ CRITICAL:** Always use **NPT ensemble** for MD sampling. If the NPT simulation
+   > fails or encounters errors, the agent MUST attempt to fix the simulation code to make
+   > NPT work. **NEVER switch to a different ensemble** (e.g., NVT, NVE) without explicit
+   > user approval. The agent should debug and resolve NPT issues, not avoid them.
+
+5. **Entropy-based structure selection:**
+   After MD sampling, use entropy-based filtering to select **30 diverse structures**
+   from the 100 MD frames before DFT labeling:
+   ```
+   run_skill_script(
+       skill_name="quests",
+       script_name="active_learning.py",
+       args="filter-by-entropy md_trajectory.extxyz --max-sel 30 --chunk-size 10"
+   )
+   ```
+   This reduces DFT computational cost while maintaining structural diversity.
+
+6. **Atom count rules for DFT calculations:**
    | System type | Supercell? | Target atoms |
    |---|---|---|
    | Simple (bulk, alloy) | Yes, if needed | ~50 atoms |
@@ -105,10 +132,29 @@ Follow Phases A–D below. EOS benchmark is used for evaluation (no test set ava
    > Keep each DFT structure at roughly **50 atoms** when possible. For complex systems,
    > do NOT supercell — use the original cell as-is.
 
-#### Phase B — DFT labeling
+#### Phase B — Entropy-based structure selection & DFT labeling
 
-Run DFT single-point calculations on all candidate structures to obtain energy, force,
-and virial labels.
+**Step 1: Entropy-based structure selection (MANDATORY)**
+
+Before DFT labeling, use entropy-based filtering to select **30 diverse structures**
+from the 100 MD frames. This reduces DFT computational cost while maintaining
+structural diversity.
+
+```
+run_skill_script(
+    skill_name="quests",
+    script_name="active_learning.py",
+    args="filter-by-entropy md_trajectory.extxyz --max-sel 30 --chunk-size 10"
+)
+```
+
+> **⚠️ CRITICAL:** Always run entropy-based selection BEFORE DFT labeling. Never send
+> all 100 MD frames directly to DFT — use the selected 30 structures instead.
+
+**Step 2: DFT labeling**
+
+Run DFT single-point calculations on the **selected 30 structures** to obtain energy,
+force, and virial labels.
 
 - Use the `vasp` or `abacus` skill for DFT input preparation and execution.
 - See `concepts/dft-calculation` for guidance on choosing a DFT code.
@@ -116,13 +162,18 @@ and virial labels.
 
 **Frame budget & training steps (no user dataset):**
 
-| System type | Max DFT frames | Training steps | Warmup steps |
-|---|---|---|---|
-| Simple | **30** | **3 000** | **230** |
-| Complex | **100** | **10 000** | **780** |
+| System type | Max DFT frames | Training steps | Warmup steps | Train/Test split |
+|---|---|---|---|---|
+| Simple | **30** | **3 000** | **230** | All for training |
+| Complex | **100** | **10 000** | **780** | **9:1** (90 train / 10 test) |
 
-> When the user has no dataset, all generated frames go to training — no test phase.
-> When the user has a dataset, up to **100 frames** are used for training; excess frames
+> **Simple systems (no dataset):** All 30 frames go to training — no test phase.
+> Evaluation is done via EOS benchmark (Phase C).
+>
+> **Complex systems (no dataset):** Split 100 DFT frames into 90 training / 10 test
+> using a 9:1 ratio. Run `dp test` on the test set to evaluate.
+>
+> **User has dataset:** Use entropy-selected 100 frames for training; excess frames
 > become the test set.
 
 #### Phase C — EOS benchmark (no-dataset path, simple systems only)
@@ -157,18 +208,18 @@ run an EOS benchmark to compare pretrained vs finetuned models against DFT groun
        args="prepare-finetune --workdir ./finetune_001 --train_data dft_data.extxyz --base_model /path/to/dpa4_model --numb_steps 3000 --warmup_steps 230"
    )
 
-   # No user dataset (complex): 100 frames → all for training, no test
+   # No user dataset (complex): 100 frames → 90 train / 10 test (9:1 split)
    run_skill_script(
        skill_name="dpa4",
        script_name="dpa4_prepare.py",
-       args="prepare-finetune --workdir ./finetune_001 --train_data dft_data.extxyz --base_model /path/to/dpa4_model --numb_steps 10000 --warmup_steps 780"
+       args="prepare-finetune --workdir ./finetune_001 --train_data dft_data.extxyz --base_model /path/to/dpa4_model --numb_steps 10000 --warmup_steps 780 --max_train_frames 90"
    )
 
-   # User has dataset: 100 frames for training, rest for test
+   # User has dataset: entropy-selected 100 frames for training, rest for test
    run_skill_script(
        skill_name="dpa4",
        script_name="dpa4_prepare.py",
-       args="prepare-finetune --workdir ./finetune_001 --train_data user_data.extxyz --base_model /path/to/dpa4_model --numb_steps 10000 --warmup_steps 780 --max_train_frames 100"
+       args="prepare-finetune --workdir ./finetune_001 --train_data selected_100.extxyz --base_model /path/to/dpa4_model --numb_steps 10000 --warmup_steps 780"
    )
    ```
 
@@ -182,7 +233,8 @@ run an EOS benchmark to compare pretrained vs finetuned models against DFT groun
      - Pretrained: energy MAE = X, force MAE = Y
      - Finetuned: energy MAE = X', force MAE = Y'
      - Improvement: energy MAE reduced by Z%, force MAE reduced by W%
-   - **No dataset:** Compare EOS curves (Phase C). Report DFT vs pretrained vs finetuned.
+   - **No dataset (simple):** Compare EOS curves (Phase C). Report DFT vs pretrained vs finetuned.
+   - **No dataset (complex):** Run `dp test` on the 10-frame test set. Report pretrained vs finetuned MAE.
 
 ---
 
@@ -317,6 +369,13 @@ Use `remote_profile` with an `input_data` sub-object for Bohrium.
 > `<model>` is the base model name inside the workdir — the prepare script prints it as
 > `model_name` in its JSON output.
 
+> ⚠️ **CRITICAL — backward_files must include ALL outputs from the command chain.**
+> The `dp --pt freeze -c model.ckpt.pt -o frozen` step produces `frozen.pt2`.
+> **If `frozen.pt2` is missing from `backward_files`, the trained model will NOT be
+> downloaded from Bohrium — the finetuning result is permanently lost.**
+> Always verify `backward_files` contains at least: `model.ckpt.pt`, `frozen.pt2`,
+> `lcurve.out`, `train_log` (plus test outputs when applicable).
+
 ### Step 3 — Substitute, validate, and submit
 
 ```bash
@@ -389,8 +448,16 @@ Key differences from DPA-1/DPA-2:
 - `deepmd/npy` systems are written per chemical formula; use `--mixed_type` for variable
   composition within a single directory.
 - All `task_work_path` entries must share the same `work_base` (dpdispatcher requirement).
-- **Frame budget & training steps (no user dataset):** simple ≤30 frames / 3 000 steps / 230 warmup; complex ≤100 frames / 10 000 steps / 780 warmup.
-- **User dataset:** cap training at 100 frames (`--max_train_frames 100`); excess becomes test set.
+- **MD sampling MUST use NPT ensemble** with default parameters: T=500 K, P=1 bar, duration=5 ps.
+  If NPT simulation fails, the agent MUST debug and fix the code to make NPT work.
+  **NEVER switch to NVT/NVE without explicit user approval.**
+- **Entropy-based structure selection is MANDATORY** in all paths:
+  - No dataset: select 30 structures from 100 MD frames for DFT labeling.
+  - User has dataset: select 100 structures for training; excess becomes test set.
+- **Frame budget & training steps (no user dataset):**
+  - Simple: 30 frames, 3 000 steps, warmup 230. All for training, no test.
+  - Complex: 100 frames, 10 000 steps, warmup 780. **9:1 split** (90 train / 10 test).
+- **User dataset:** entropy-select 100 frames for training; excess becomes test set.
 - **Atom count:** ~50 atoms/DFT structure. Simple systems may supercell; complex systems
   (defects, dopants, surfaces, interfaces, transition states, high-entropy alloys) must NOT.
 - **EOS benchmark** is for **no-dataset path only** (simple systems). When the user has a

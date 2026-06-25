@@ -105,6 +105,16 @@ If `submit_step_result` returns a validation error, fix the fields and call it a
 - Use `run_python` or `run_bash` for computation. Do not fabricate outputs.
 - Include ALL generated files with their absolute paths in `artifacts`.
 - Do not retry indefinitely on failure — call `submit_step_result` with needs_replanning.
+
+## Resume-awareness (CRITICAL for remote jobs)
+When `prior_context` mentions a previously submitted remote job (e.g. Bohrium/Slurm):
+1. **Check for existing submission.json** in the workspace — if found, do NOT create a new one.
+2. **Check for already-downloaded output files** (e.g. `frozen.pt2`, `lcurve.out`). If they exist, the job already completed — use the existing results directly.
+3. **If submission.json exists but outputs are missing**, reuse the same submission file (dpdispatcher is idempotent — it skips completed tasks). Do NOT regenerate submission.json.
+4. **Never resubmit a job that already completed** — this wastes GPU time and creates duplicate training runs.
+
+## MANDATORY: Always call submit_step_result
+You MUST call `submit_step_result` before finishing. If you exit without calling it, the step will be marked as `needs_replanning` after timeout. Never end a step with just a text response — always use `submit_step_result` to report your outcome.
 """
 
 
