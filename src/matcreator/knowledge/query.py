@@ -83,7 +83,20 @@ _get_skill_kg = _get_kg
 _get_memory_kg = _get_kg
 
 
-def _format_durable(entries: list[Entry]) -> str:
+_DISCOVERY_CONTENT_CHARS = 240
+
+
+def _clip_content(content: str, limit: int) -> str:
+    """Return a single-line preview bounded to ``limit`` characters."""
+    preview = " ".join(content.split())
+    if len(preview) <= limit:
+        return preview
+    if limit <= 3:
+        return "." * max(limit, 0)
+    return preview[: max(limit - 3, 0)].rstrip() + "..."
+
+
+def _format_durable(entries: list[Entry], *, max_content_chars: int | None = None) -> str:
     lines = []
     for entry in entries:
         level = entry.metadata.skill_level
@@ -100,7 +113,12 @@ def _format_durable(entries: list[Entry]) -> str:
         label = f"{level} {entry.entry_type.value}" if level else entry.entry_type.value
         line = f"- **{entry.title}** [{label}]"
         if entry.content:
-            line += f": {entry.content}"
+            content = (
+                _clip_content(entry.content, max_content_chars)
+                if max_content_chars is not None
+                else entry.content
+            )
+            line += f": {content}"
         lines.append(line)
     return "\n".join(lines)
 
@@ -255,7 +273,12 @@ def save_to_knowledge_graph(
 
 
 def search_skills(query: str, top_k: int = 5) -> str:
-    """Search planner-level L1 capabilities/workflows and L2 procedures."""
+    """Search planner-level L1 capabilities/workflows and L2 procedures.
+
+    This is a discovery tool: return titles and clipped previews only. Agents
+    should call ``load_skill`` or ``search_skill_context`` after choosing a
+    result when they need detailed instructions.
+    """
     from ..config import get_disabled_skills
 
     graph = _get_kg()
@@ -274,7 +297,11 @@ def search_skills(query: str, top_k: int = 5) -> str:
         ][:top_k]
         for entry in results:
             increment_usage(graph, entry)
-        return _format_durable(results) if results else f"No skills found for '{query}'."
+        return (
+            _format_durable(results, max_content_chars=_DISCOVERY_CONTENT_CHARS)
+            if results
+            else f"No skills found for '{query}'."
+        )
     except Exception as exc:
         logger.warning("search_skills failed: %s", exc)
         return f"Skill search failed: {exc}"

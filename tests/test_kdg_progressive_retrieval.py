@@ -18,15 +18,48 @@ def _add(
     entry_type: EntryType,
     level: SkillLevel,
     *,
+    content: str | None = None,
     tags: list[str] | None = None,
 ):
     return graph.add(
         title,
-        content=f"{title} content",
+        content=content if content is not None else f"{title} content",
         entry_type=entry_type,
         tags=tags or [],
         metadata=EntryMetadata(skill_level=level),
     )
+
+
+def test_search_skills_returns_only_clipped_skill_previews(
+    tmp_path, monkeypatch
+) -> None:
+    graph = KnowDoGraph(tmp_path / "know-do.db")
+    full_body = "\n".join(
+        [
+            "Short skill overview.",
+            "Detailed instruction A " * 20,
+            "Detailed instruction B should stay out of the discovery result.",
+        ]
+    )
+    _add(
+        graph,
+        "Verbose skill",
+        EntryType.capability,
+        SkillLevel.L1,
+        content=full_body,
+        tags=["matcreator-skill"],
+    )
+    monkeypatch.setattr(query, "_get_kg", lambda: graph)
+    monkeypatch.setattr(query, "increment_usage", lambda _graph, _entry: None)
+    monkeypatch.setattr("matcreator.config.get_disabled_skills", lambda: [])
+
+    result = query.search_skills("verbose skill", top_k=1)
+
+    assert "Verbose skill" in result
+    assert "Short skill overview." in result
+    assert "Detailed instruction B should stay out" not in result
+    assert len(result) < len(full_body)
+    assert "..." in result
 
 
 def test_search_skill_context_only_returns_attached_sidecars(
