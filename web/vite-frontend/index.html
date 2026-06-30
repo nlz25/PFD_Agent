@@ -208,20 +208,8 @@
               </div>
             </div>
           </div>
-          <div class="input-area">
-            <div class="upload-status" id="upload-status" aria-live="polite"></div>
-            <div class="input-container">
-              <button class="tool-btn" id="file-upload-btn" title="Upload file">+</button>
-              <input type="file" id="file-upload-input" multiple style="display:none">
-              <textarea class="text-input" id="text-input" placeholder="Ask for a plan, run, or assessment…" rows="1"></textarea>
-              <button class="send-btn" id="send-btn" title="Send">➜</button>
-            </div>
-          </div>
-          <div class="workspace-cli hidden" id="workspace-cli">
-            <div class="workspace-terminal" id="workspace-terminal"></div>
-          </div>
 
-          <!-- Floating execution plan graph popup -->
+          <!-- Folded execution plan graph between conversation and composer -->
           <div class="plan-graph-popup hidden" id="plan-graph-popup">
             <div class="plan-graph-popup-header">
               <span class="plan-graph-popup-title">Execution Plan</span>
@@ -239,6 +227,19 @@
               <button class="ghost plan-graph-close-btn" id="plan-graph-close" title="Close">✕</button>
             </div>
             <div id="plan-graph-canvas" class="plan-graph-canvas"></div>
+          </div>
+
+          <div class="input-area">
+            <div class="upload-status" id="upload-status" aria-live="polite"></div>
+            <div class="input-container">
+              <button class="tool-btn" id="file-upload-btn" title="Upload file">+</button>
+              <input type="file" id="file-upload-input" multiple style="display:none">
+              <textarea class="text-input" id="text-input" placeholder="Ask for a plan, run, or assessment…" rows="1"></textarea>
+              <button class="send-btn" id="send-btn" title="Send">➜</button>
+            </div>
+          </div>
+          <div class="workspace-cli hidden" id="workspace-cli">
+            <div class="workspace-terminal" id="workspace-terminal"></div>
           </div>
         </section>
 

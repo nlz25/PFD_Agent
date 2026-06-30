@@ -557,10 +557,7 @@ class AgentGraphView {
     const arts = raw.artifacts || [];
     if (arts.length) {
       arts.forEach((a) => {
-        const li = document.createElement("li");
-        li.textContent = a.split("/").pop();
-        li.title = a;
-        this._detailArtifacts.appendChild(li);
+        this._detailArtifacts.appendChild(createArtifactListItem(a));
       });
     } else {
       const li = document.createElement("li");
@@ -599,6 +596,9 @@ class AgentGraphView {
           pre.style.borderTop = "1px solid rgba(255,255,255,0.06)";
           d.appendChild(pre);
         }
+        getStructurePaths(tc).forEach((path) => {
+          d.appendChild(createStructureViewButton(path));
+        });
         this._detailToolcalls.appendChild(d);
       });
       document.getElementById("detail-toolcalls-row").style.display = "";
@@ -1084,10 +1084,7 @@ class StepExecutionFeed {
       const list = document.createElement("ul");
       list.className = "detail-artifacts step-feed-artifacts";
       artifacts.forEach((artifact) => {
-        const li = document.createElement("li");
-        li.textContent = artifact.split("/").pop();
-        li.title = artifact;
-        list.appendChild(li);
+        list.appendChild(createArtifactListItem(artifact));
       });
       section.append(label, list);
       body.appendChild(section);
@@ -1606,6 +1603,28 @@ function refreshGraphAndStructureLayout() {
       // ignore transient resize/render issues
     }
   }
+}
+
+function setStructureViewerActive(active) {
+  if (!graphColumn || !graphViewport) return;
+  graphColumn.classList.toggle("structure-active", active);
+
+  if (active) {
+    if (graphViewport.dataset.preStructureHeight === undefined) {
+      graphViewport.dataset.preStructureHeight = graphViewport.style.height || "";
+    }
+    applyTargetHeight(graphViewport, Math.min(getTargetHeight(graphViewport), 260));
+  } else if (graphViewport.dataset.preStructureHeight !== undefined) {
+    const previousHeight = graphViewport.dataset.preStructureHeight;
+    if (previousHeight) {
+      graphViewport.style.height = previousHeight;
+    } else {
+      graphViewport.style.removeProperty("height");
+    }
+    delete graphViewport.dataset.preStructureHeight;
+  }
+
+  refreshGraphAndStructureLayout();
 }
 
 function syncPanelResizerVisibility() {
@@ -2550,6 +2569,58 @@ function getPlotPaths(response) {
   return paths;
 }
 
+function getStructurePaths(payload) {
+  const paths = [];
+  const add = (path) => {
+    if (typeof path === "string" && path && !paths.includes(path)) paths.push(path);
+  };
+  const visit = (value, key = "") => {
+    if (!value) return;
+    if (key === "structure_path") {
+      add(value);
+      return;
+    }
+    if (key === "structure_paths" && Array.isArray(value)) {
+      value.forEach(add);
+      return;
+    }
+    if ((key === "artifacts" || key === "artifact_paths") && Array.isArray(value)) {
+      value.forEach((path) => {
+        if (classifyPath(String(path)) === "structure") add(path);
+      });
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item) => visit(item, key));
+      return;
+    }
+    if (typeof value === "object") {
+      Object.entries(value).forEach(([childKey, childValue]) => visit(childValue, childKey));
+    }
+  };
+  visit(payload);
+  return paths;
+}
+
+function createStructureViewButton(path) {
+  const btn = document.createElement("button");
+  btn.className = "ghost structure-view-btn";
+  btn.textContent = `🔬 View: ${path.split("/").pop()}`;
+  btn.addEventListener("click", () => openViewer({ path, url: pathToApiUrl(path) }));
+  return btn;
+}
+
+function createArtifactListItem(path) {
+  const li = document.createElement("li");
+  li.title = path;
+  if (classifyPath(path) === "structure") {
+    li.appendChild(createStructureViewButton(path));
+  } else {
+    li.textContent = path.split("/").pop();
+  }
+  return li;
+}
+
 function isExecutorLauncherTool(name) {
   return ["run_flash_step", "run_node_executor", "run_sub_agent"].includes(name || "");
 }
@@ -2618,17 +2689,9 @@ function renderTimeline(container, timeline, shownPlotPaths = null) {
         img.addEventListener("click", () => lightbox.open(img.src));
         container.appendChild(img);
       }
-      // Render inline "View Structure" button for structure tool responses
-      if (item.response && item.response.structure_path) {
-        const btn = document.createElement("button");
-        btn.className = "ghost structure-view-btn";
-        btn.textContent = `🔬 View: ${item.response.structure_path.split("/").pop()}`;
-        btn.addEventListener("click", () => openViewer({
-          path: item.response.structure_path,
-          url: pathToApiUrl(item.response.structure_path),
-        }));
-        container.appendChild(btn);
-      }
+      getStructurePaths(item.response).forEach((path) => {
+        container.appendChild(createStructureViewButton(path));
+      });
     } else if (item.type === "text") {
       const div = document.createElement("div");
       div.className = "markdown-content";
@@ -2711,6 +2774,9 @@ function renderStepToolCall(tc) {
     pre.style.borderTop = "1px solid rgba(255,255,255,0.06)";
     details.appendChild(pre);
   }
+  getStructurePaths(tc).forEach((path) => {
+    details.appendChild(createStructureViewButton(path));
+  });
   return details;
 }
 
@@ -3759,9 +3825,11 @@ async function sendMessage(message) {
 async function openViewer(item) {
   graphDetail.classList.add("hidden");
   structureViewer.classList.remove("hidden");
+  setStructureViewerActive(true);
   syncPanelResizerVisibility();
   svCanvas.innerHTML = '<div style="color:var(--muted);padding:16px;font-size:13px">Loading…</div>';
   svMeta.textContent = "";
+  structureViewer.scrollIntoView({ block: "nearest" });
 
   try {
     const resp = await fetch(`/api/structure/view?path=${encodeURIComponent(item.path)}&session_id=${encodeURIComponent(state.sessionId || "")}`);
@@ -3807,6 +3875,7 @@ async function openViewer(item) {
 
 svClose.addEventListener("click", () => {
   structureViewer.classList.add("hidden");
+  setStructureViewerActive(false);
   syncPanelResizerVisibility();
   state.structure3dViewer = null;
   svCanvas.innerHTML = "";

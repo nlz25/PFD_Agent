@@ -704,6 +704,15 @@ def _load_json_field(raw_value: str | None, fallback):
         return fallback
 
 
+def _ase_read_structure(path: Path):
+    from ase.io import read as ase_read
+
+    name = path.name.lower()
+    if name in {"poscar", "contcar"} or path.suffix.lower() == ".vasp":
+        return ase_read(str(path), format="vasp")
+    return ase_read(str(path))
+
+
 def _load_agent_graph_data(session_id: str) -> dict:
     graph_paths: list[Path]
     if _MATCREATOR_MODE == "server":
@@ -1658,7 +1667,6 @@ async def view_structure(
     from io import StringIO
 
     try:
-        from ase.io import read as ase_read
         from ase.io import write as ase_write
     except ImportError:
         raise HTTPException(status_code=500, detail="ASE is not installed")
@@ -1668,7 +1676,7 @@ async def view_structure(
         raise HTTPException(status_code=404, detail="File not found")
 
     try:
-        atoms = ase_read(str(resolved))
+        atoms = _ase_read_structure(resolved)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Cannot parse structure: {exc}")
 
