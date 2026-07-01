@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v2.5.0 (2026-07-01)
+
+### Bug Fixes
+
+- Improve the pop up window for the plan graph
+  ([`4b407d6`](https://github.com/AI4MS/MatCreator/commit/4b407d6406352d7ef618dbb6d340c20bfc5101f4))
+
+- Local user has full access to session logs
+  ([`9ecc047`](https://github.com/AI4MS/MatCreator/commit/9ecc047ad8a908adad32f35d2bf3034df655ed28))
+
+### Features
+
+- Add llm cards
+  ([`1e97a26`](https://github.com/AI4MS/MatCreator/commit/1e97a26299c8d7075b0d99f9efa54258d2473768))
+
+
 ## v2.4.0 (2026-06-30)
 
 ### Bug Fixes
