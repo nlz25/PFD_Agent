@@ -597,13 +597,21 @@ body[data-theme="light"] .theme-icon-sun {
 .center-tabs {
   display: flex;
   align-items: flex-end;
-  gap: 2px;
   padding: 4px 8px 0;
   border-bottom: 1px solid var(--border);
   background: rgba(var(--panel-rgb), 0.86);
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.center-tabs-scroll {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
   overflow-x: auto;
   overflow-y: hidden;
-  flex: 0 0 auto;
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .center-tab {
@@ -1626,6 +1634,9 @@ details.panel-block:not([open]) > summary.block-header::after { transform: rotat
   flex: 1;
   min-width: 0;
   overflow: hidden;
+}
+.session-item-id {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1721,6 +1732,116 @@ details.panel-block:not([open]) > summary.block-header::after { transform: rotat
   font-weight: 600;
 }
 .confirm-ok:hover { background: #ef4444; }
+
+.session-item-summary {
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.75;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+  font-family: inherit;
+}
+
+/* ── Session summary banner ───────────────────────────────── */
+.session-summary-banner {
+  flex: 0 0 auto;
+  max-height: 0;
+  padding: 0 24px;
+  overflow: hidden;
+  background: linear-gradient(
+    180deg,
+    rgba(var(--accent-rgb, 125, 211, 252), 0.06) 0%,
+    transparent 100%
+  );
+  border-bottom: 0px solid var(--border);
+  text-align: center;
+  transition: max-height 0.7s cubic-bezier(0.4, 0, 0.2, 1),
+              padding 0.7s cubic-bezier(0.4, 0, 0.2, 1),
+              border-bottom-width 0.5s ease 0.2s;
+}
+.session-summary-banner.visible {
+  max-height: 60px;
+  padding: 10px 24px 8px;
+  border-bottom-width: 1px;
+}
+.session-summary-banner-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+.session-summary-text {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  opacity: 0;
+  transition: opacity 0.4s ease 0.5s;
+}
+.session-summary-banner.visible .session-summary-text {
+  opacity: 1;
+}
+.session-summary-text.typewriter {
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  max-width: 0;
+  opacity: 1;
+  animation: typewriter-reveal 1.3s steps(var(--tw-steps, 20), end) forwards;
+}
+.session-summary-text.typewriter-done {
+  max-width: none;
+}
+@keyframes typewriter-reveal {
+  from { max-width: 0; }
+  to   { max-width: var(--tw-width, 1000px); }
+}
+.session-summary-placeholder {
+  opacity: 0.4;
+  font-style: italic;
+  -webkit-text-fill-color: var(--muted);
+  background: none;
+}
+.session-summary-edit {
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+  color: var(--muted);
+}
+.session-summary-banner.visible:hover .session-summary-edit {
+  opacity: 0.6;
+}
+.session-summary-edit:hover {
+  opacity: 1 !important;
+  background: rgba(125, 211, 252, 0.15);
+}
+.session-summary-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  background: rgba(125, 211, 252, 0.08);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 2px 10px;
+  outline: none;
+  text-align: center;
+}
 
 .structure-view-btn {
   margin-top: 6px;
@@ -2113,6 +2234,10 @@ body[data-theme="light"] .confirm-card,
 body[data-theme="light"] .file-viewer-card {
   background: #ffffff;
   border-color: rgba(19, 32, 51, 0.14);
+}
+body[data-theme="light"] .json-block {
+  background: rgba(0, 0, 0, 0.06);
+  color: #475569;
 }
 
 body[data-theme="light"] .graph-viewport,

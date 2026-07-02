@@ -2,6 +2,43 @@
 
 <!-- version list -->
 
+## v2.6.0 (2026-07-02)
+
+### Bug Fixes
+
+- Compatibility with local deployment mode
+  ([`58a5ca9`](https://github.com/AI4MS/MatCreator/commit/58a5ca92ef68beab871f9925144581cbbc972c21))
+
+- Issues with disabled skill
+  ([`284f7a7`](https://github.com/AI4MS/MatCreator/commit/284f7a78c18c19fd4156056a7275eb276cae71e5))
+
+- Prioritize bohrium skill over dpdisp for remote job submission in deepmd, ase-deepmd, and dpa4
+  skills
+  ([`56a8d78`](https://github.com/AI4MS/MatCreator/commit/56a8d78390f9ee39a771c51615f2643fa9ddc312))
+
+- Update ase-deepmd skill
+  ([`5921c13`](https://github.com/AI4MS/MatCreator/commit/5921c13a5535533acd6c694dcf2dae51b969f22f))
+
+### Features
+
+- Add some details for mckit skills
+  ([`d546ac5`](https://github.com/AI4MS/MatCreator/commit/d546ac5c5fe81c8a0ba8ae30543628ac2741306c))
+
+- Fancier input box for modes!
+  ([`48ed9e2`](https://github.com/AI4MS/MatCreator/commit/48ed9e27125bbe70e192f48274fd01d843c00895))
+
+- Light/dark modes, fancier layouts
+  ([`4d8d6da`](https://github.com/AI4MS/MatCreator/commit/4d8d6da93c7d3433bbf0f422878b2ddb6e0aed35))
+
+- Tabs support
+  ([`3654ac2`](https://github.com/AI4MS/MatCreator/commit/3654ac20b3761fea4b51cb610197c11c876f2e4a))
+
+### Refactoring
+
+- General frontend refactor
+  ([`0d0ab19`](https://github.com/AI4MS/MatCreator/commit/0d0ab19d5a9151e563dbce2562ee8ef67ffb63b3))
+
+
 ## v2.5.0 (2026-07-01)
 
 ### Bug Fixes
