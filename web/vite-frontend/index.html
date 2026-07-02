@@ -102,8 +102,34 @@
               <span id="knowledge-review-text">Review Know-Do Graph</span>
             </button>
             <div class="left-action-row">
-              <button class="ghost" id="workspace-cli-toggle" title="Toggle workspace terminal">CLI</button>
-              <button class="ghost" id="settings-btn" title="Settings">Settings</button>
+              <button class="ghost icon-action-btn" id="workspace-cli-toggle" title="Toggle workspace terminal" aria-label="Toggle workspace terminal">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <polyline points="4 17 10 11 4 5"></polyline>
+                  <line x1="12" y1="19" x2="20" y2="19"></line>
+                </svg>
+              </button>
+              <button class="ghost icon-action-btn" id="theme-toggle" title="Toggle light mode" aria-label="Toggle light mode" aria-pressed="false">
+                <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8z"></path>
+                </svg>
+                <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="4"></circle>
+                  <path d="M12 2v2"></path>
+                  <path d="M12 20v2"></path>
+                  <path d="m4.93 4.93 1.41 1.41"></path>
+                  <path d="m17.66 17.66 1.41 1.41"></path>
+                  <path d="M2 12h2"></path>
+                  <path d="M20 12h2"></path>
+                  <path d="m6.34 17.66-1.41 1.41"></path>
+                  <path d="m19.07 4.93-1.41 1.41"></path>
+                </svg>
+              </button>
+              <button class="ghost icon-action-btn" id="settings-btn" title="Settings" aria-label="Settings">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="3"></circle>
+                  <path d="M12 3.5h0a1.35 1.35 0 0 1 1.35 1.19l.14 1.17a6.7 6.7 0 0 1 1.22.5l.92-.73a1.35 1.35 0 0 1 1.8.1h0a1.35 1.35 0 0 1 .1 1.8l-.73.92c.2.39.37.8.5 1.22l1.17.14A1.35 1.35 0 0 1 19.66 11h0v2h0a1.35 1.35 0 0 1-1.19 1.35l-1.17.14a6.7 6.7 0 0 1-.5 1.22l.73.92a1.35 1.35 0 0 1-.1 1.8h0a1.35 1.35 0 0 1-1.8.1l-.92-.73c-.39.2-.8.37-1.22.5l-.14 1.17A1.35 1.35 0 0 1 12 20.66h0a1.35 1.35 0 0 1-1.35-1.19l-.14-1.17a6.7 6.7 0 0 1-1.22-.5l-.92.73a1.35 1.35 0 0 1-1.8-.1h0a1.35 1.35 0 0 1-.1-1.8l.73-.92a6.7 6.7 0 0 1-.5-1.22l-1.17-.14A1.35 1.35 0 0 1 4.34 13h0v-2h0a1.35 1.35 0 0 1 1.19-1.35l1.17-.14c.13-.42.3-.83.5-1.22l-.73-.92a1.35 1.35 0 0 1 .1-1.8h0a1.35 1.35 0 0 1 1.8-.1l.92.73c.39-.2.8-.37 1.22-.5l.14-1.17A1.35 1.35 0 0 1 12 3.5Z"></path>
+                </svg>
+              </button>
             </div>
             <div class="left-user-row">
               <div id="avatar-upload-btn" class="message-avatar user-avatar avatar-upload-btn" title="Upload your avatar"></div>

@@ -13,6 +13,7 @@ import "./style.css";
 const APP_NAME = "MatCreator";
 
 const AGENT_MODE_KEY = "mat_agentMode";
+const THEME_KEY = "mat_theme";
 
 const state = {
   sessionId: localStorage.getItem("mat_sessionId") || `session-${Math.floor(Date.now() / 1000)}`,
@@ -27,6 +28,7 @@ const state = {
   isSending: false,
   sendController: null,
   agentMode: localStorage.getItem(AGENT_MODE_KEY) || "normal",
+  theme: localStorage.getItem(THEME_KEY) || "dark",
   customWorkdir: "",
 };
 
@@ -45,6 +47,7 @@ const sessionIdEl = document.getElementById("session-id");
 const sessionListEl = document.getElementById("session-list");
 const resetBtn = document.getElementById("reset-session");
 const workspaceCliToggle = document.getElementById("workspace-cli-toggle");
+const themeToggle = document.getElementById("theme-toggle");
 const refreshSessionsBtn = document.getElementById("refresh-sessions");
 const graphViewport = document.getElementById("graph-viewport");
 const graphDetail = document.getElementById("graph-detail");
@@ -106,6 +109,22 @@ function autoResizeTextInput() {
 
 autoResizeTextInput();
 textInput?.addEventListener("input", autoResizeTextInput);
+
+function applyTheme(theme) {
+  const nextTheme = theme === "light" ? "light" : "dark";
+  state.theme = nextTheme;
+  document.body.dataset.theme = nextTheme;
+  themeToggle?.setAttribute("aria-pressed", String(nextTheme === "light"));
+  themeToggle?.setAttribute("title", nextTheme === "light" ? "Toggle dark mode" : "Toggle light mode");
+  themeToggle?.setAttribute("aria-label", nextTheme === "light" ? "Toggle dark mode" : "Toggle light mode");
+}
+
+applyTheme(state.theme);
+themeToggle?.addEventListener("click", () => {
+  const nextTheme = state.theme === "light" ? "dark" : "light";
+  localStorage.setItem(THEME_KEY, nextTheme);
+  applyTheme(nextTheme);
+});
 
 sessionIdEl.textContent = state.sessionId;
 if (state.userId) userDisplay.textContent = state.displayName || state.userId;
